@@ -2438,8 +2438,16 @@ function setupChartRangeButtons() {
             btns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             chartRange = btn.getAttribute('data-range');
-            // Force update chart
-            updateDashboardChart(hashrateHistory.length ? hashrateHistory[hashrateHistory.length-1].v : 0);
+            // Update x-as displayFormats en unit
+            if (window.hashrateChart) {
+                window.hashrateChart.options.scales.x.time.displayFormats = getXAxisDisplayFormat();
+                window.hashrateChart.options.scales.x.time.tooltipFormat = getTooltipFormat();
+                window.hashrateChart.options.scales.x.time.unit = getTimeUnit();
+                window.hashrateChart.update();
+            }
+            // Force update chart met actuele rigs
+            const rigsToShow = miningRigs.filter(rig => rig.isActive && rig.isHashing);
+            updateDashboardChartMulti(rigsToShow);
         });
     });
     // Zet default actief
@@ -2463,12 +2471,36 @@ function setupChartScaleToggle() {
     btn.textContent = 'Logaritmisch';
 }
 
+function getXAxisDisplayFormat() {
+    if (chartRange === 'week' || chartRange === 'month') {
+        return { day: 'dd-MM', hour: 'HH:mm', minute: 'HH:mm', second: 'HH:mm' };
+    }
+    if (chartRange === 'year') {
+        return { week: "'Week' ww", day: 'dd-MM', hour: 'HH:mm' };
+    }
+    // default: uren
+    return { hour: 'HH:mm' };
+}
+
+function getTimeUnit() {
+    if (chartRange === 'day') return 'hour';
+    if (chartRange === 'week' || chartRange === 'month') return 'day';
+    if (chartRange === 'year') return 'week';
+    return undefined;
+}
+
+function getTooltipFormat() {
+    if (chartRange === 'week' || chartRange === 'month') return 'dd-MM';
+    if (chartRange === 'year') return "'Week' ww";
+    return 'HH:mm';
+}
+
 function setupDashboardChart() {
     const ctx = document.getElementById('hashrate-history-chart').getContext('2d');
     window.hashrateChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: [],
+            labels: [], // timestamps (ms)
             datasets: []
         },
         options: {
@@ -2477,13 +2509,38 @@ function setupDashboardChart() {
                 tooltip: {
                     callbacks: {
                         title: function(context) {
-                            return context[0].label;
+                            const t = context[0].parsed.x;
+                            if (chartRange === 'week' || chartRange === 'month') {
+                                return new Date(t).toLocaleDateString();
+                            }
+                            if (chartRange === 'year') {
+                                // Weeknummer tonen
+                                const d = new Date(t);
+                                const onejan = new Date(d.getFullYear(),0,1);
+                                const week = Math.ceil((((d - onejan) / 86400000) + onejan.getDay()+1)/7);
+                                return `Week ${week} (${d.getFullYear()})`;
+                            }
+                            return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         }
                     }
                 }
             },
             scales: {
-                x: { display: false },
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: getTimeUnit(),
+                        tooltipFormat: getTooltipFormat(),
+                        displayFormats: getXAxisDisplayFormat()
+                    },
+                    ticks: {
+                        color: '#a0aec0',
+                        autoSkip: true,
+                        maxRotation: 0,
+                        minRotation: 0
+                    },
+                    grid: { color: '#2d3748' }
+                },
                 y: {
                     type: chartScale,
                     beginAtZero: true,
