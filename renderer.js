@@ -11,6 +11,8 @@ let coinData = [];
 let charts = {};
 let miningPoolService = new MiningPoolService();
 let poolData = null;
+let hashrateHistory = [];
+let rigHashrateHistory = {};
 
 // Real-time hashrate monitoring
 let hashrateUpdateInterval = null;
@@ -94,13 +96,20 @@ const elements = {
     poolUrl: document.getElementById('pool-url'),
     poolStatusIndicator: document.getElementById('pool-status-indicator'),
     poolStatusText: document.getElementById('pool-status-text'),
-    testPool: document.getElementById('test-pool')
+    testPool: document.getElementById('test-pool'),
+    refreshDashboardBtn: document.getElementById('refresh-dashboard-btn')
 };
 
 // Event listeners
 window.addEventListener('DOMContentLoaded', () => {
     initializeApp();
     setupEventListeners();
+    startDashboardUpdater();
+    setupChartRangeButtons();
+    loadHashrateHistory();
+    setupChartScaleToggle();
+    setupDashboardRefreshButton();
+    loadRigHashrateHistory();
 });
 
 function initializeApp() {
@@ -772,6 +781,16 @@ function renderRigsList() {
                            placeholder="LTC:ltc1q4kn483yr3g969dkyecsj94k2d4cnlc3s6gt4a5.nerd04"
                            ${rig._poolFromApi ? 'readonly style=\'background:#eaffea;font-weight:bold\'' : ''}>
                     <small>Pool username/worker${rig._poolFromApi ? ' <span style=\'color:green;font-weight:bold\'>(live)</span>' : ''}</small>
+                </div>
+                <div class="rig-field">
+                    <label>Naam:</label>
+                    <input type="text" data-field="name" value="${rig.name}" onchange="updateRigField('${rig.id}', 'name', this.value)" onclick="event.stopPropagation()">
+                    <small>Unieke naam voor deze rig</small>
+                </div>
+                <div class="rig-field">
+                    <label>Kleur:</label>
+                    <input type="color" data-field="color" value="${rig.color || '#63b3ed'}" onchange="updateRigField('${rig.id}', 'color', this.value)" onclick="event.stopPropagation()">
+                    <small>Kies een kleur voor de grafiek</small>
                 </div>
             </div>
         `;
@@ -2245,4 +2264,341 @@ function getAvailableCoins() {
     return [...coinData, ...manualCoins];
 }
 
-// ... [rest of the original file content remains unchanged]
+// Dashboard data ophalen en updaten
+let dashboardInterval = null;
+
+async function fetchAllRigStats() {
+    let rigsToShow = miningRigs.filter(rig => rig.isActive && rig.isHashing);
+    console.log('[DEBUG] rigsToShow:', rigsToShow);
+    let totalHashrate = 0;
+    let expectedHashrate = 0;
+    let totalShares = 0;
+    let totalRejected = 0;
+    let totalEfficiency = 0;
+    let efficiencyCount = 0;
+    let bestDifficulty = 0;
+    let diffSinceBoot = 0;
+
+    const now = Date.now();
+    for (const rig of rigsToShow) {
+        try {
+            const data = await fetchRigApiData(rig);
+            console.log(`[DEBUG] Data voor rig ${rig.name}:`, data);
+            if (!rigHashrateHistory[rig.id]) rigHashrateHistory[rig.id] = [];
+            // Voeg ALTIJD een nieuw punt toe, ongeacht waarde
+            rigHashrateHistory[rig.id].push({ t: now, v: data.hashrate || 0 });
+            while (rigHashrateHistory[rig.id].length && now - rigHashrateHistory[rig.id][0].t > MAX_HISTORY_MS) {
+                rigHashrateHistory[rig.id].shift();
+            }
+            if (data.hashrate) totalHashrate += data.hashrate;
+            if (data.expectedHashrate) expectedHashrate += data.expectedHashrate;
+            if (data.shares) totalShares += data.shares;
+            if (data.rejected) totalRejected += data.rejected;
+            if (data.efficiency) { totalEfficiency += data.efficiency; efficiencyCount++; }
+            if (data.bestDifficulty && data.bestDifficulty > bestDifficulty) bestDifficulty = data.bestDifficulty;
+            if (data.diffSinceBoot) diffSinceBoot += data.diffSinceBoot;
+        } catch (e) {
+            console.warn('Rig API error:', rig.name, e);
+        }
+    }
+    console.log('[DEBUG] rigHashrateHistory:', JSON.parse(JSON.stringify(rigHashrateHistory)));
+
+    const avgEfficiency = efficiencyCount > 0 ? (totalEfficiency / efficiencyCount) : 0;
+
+    updateDashboardCards({
+        hashrate: totalHashrate,
+        expectedHashrate,
+        shares: totalShares,
+        rejected: totalRejected,
+        efficiency: avgEfficiency,
+        bestDifficulty,
+        diffSinceBoot
+    });
+
+    updateDashboardChartMulti(rigsToShow);
+    updateDashboardLegend(rigsToShow);
+}
+
+async function fetchRigApiData(rig) {
+    // Simpele fetcher, pas aan per rig type/api
+    // Verwacht: { hashrate, expectedHashrate, shares, rejected, efficiency, bestDifficulty, diffSinceBoot }
+    // Voorbeeld voor Nerdaxe/Bitaxe/ASIC
+    const url = `http://${rig.ipAddress}${rig.customApiEndpoint || '/api/system/info'}`;
+    const res = await fetch(url, { timeout: 3000 });
+    const json = await res.json();
+    // Mapping afhankelijk van rig type
+    if (rig.rigType === 'nerdaxe' || rig.rigType === 'bitaxe') {
+        return {
+            hashrate: json.hashRate || 0,
+            expectedHashrate: json.expectedHashrate || 0, // als beschikbaar
+            shares: json.sharesAccepted || 0,
+            rejected: json.sharesRejected || 0,
+            efficiency: json.power ? (json.power / (json.hashRate || 1)) : 0,
+            bestDifficulty: parseFloat((json.bestDiff||'').replace(/[^\d.]/g, '')) || 0,
+            diffSinceBoot: parseFloat((json.bestSessionDiff||'').replace(/[^\d.]/g, '')) || 0
+        };
+    } else if (rig.rigType === 'asic' || rig.rigType === 'gpu') {
+        // ASIC/GPU API mapping
+        return {
+            hashrate: json.hashrate || json.hash_rate || 0,
+            expectedHashrate: json.expected_hashrate || json.expected_hash_rate || 0,
+            shares: json.shares || 0,
+            rejected: json.rejected || 0,
+            efficiency: json.efficiency || 0,
+            bestDifficulty: json.best_difficulty || 0,
+            diffSinceBoot: json.difficulty_since_boot || 0
+        };
+    }
+    // Fallback
+    return { hashrate: 0 };
+}
+
+function updateDashboardCards({ hashrate, expectedHashrate, shares, rejected, efficiency, bestDifficulty, diffSinceBoot }) {
+    const $hashrate = document.getElementById('stat-hashrate');
+    const $expected = document.getElementById('stat-hashrate-expected');
+    const $shares = document.getElementById('stat-shares');
+    const $rejected = document.getElementById('stat-shares-rejected');
+    const $eff = document.getElementById('stat-efficiency');
+    const $bestDiff = document.getElementById('stat-best-diff');
+    const $diffBoot = document.getElementById('stat-diff-boot');
+    if ($hashrate) $hashrate.innerHTML = `${hashrate.toFixed(2)} <span class='unit'>Gh/s</span>`;
+    if ($expected) $expected.textContent = `${expectedHashrate.toFixed(0)} Gh/s expected`;
+    if ($shares) $shares.textContent = shares;
+    if ($rejected) $rejected.textContent = `${rejected} rejected`;
+    if ($eff) $eff.innerHTML = `${efficiency.toFixed(2)} <span class='unit'>J/Th</span>`;
+    if ($bestDiff) $bestDiff.innerHTML = `${formatNumber(bestDifficulty)} <span class='unit'>all-time best</span>`;
+    if ($diffBoot) $diffBoot.textContent = `${formatNumber(diffSinceBoot)} since system boot`;
+}
+
+// Hashrate history maximaal 1 jaar bewaren
+const MAX_HISTORY_MS = 365 * 24 * 60 * 60 * 1000; // 1 jaar in ms
+let chartRange = 'day'; // default
+
+function filterHashrateHistory(range) {
+    const now = Date.now();
+    let ms = 24 * 60 * 60 * 1000; // dag
+    if (range === 'week') ms = 7 * ms;
+    if (range === 'month') ms = 31 * 24 * 60 * 60 * 1000;
+    if (range === 'year') ms = MAX_HISTORY_MS;
+    return hashrateHistory.filter(p => now - p.t <= ms);
+}
+
+const HASHRATE_HISTORY_KEY = 'dashboard_hashrate_history_v1';
+
+function saveHashrateHistory() {
+    try {
+        localStorage.setItem(HASHRATE_HISTORY_KEY, JSON.stringify(hashrateHistory));
+    } catch (e) {
+        console.warn('Kan hashrate history niet opslaan:', e);
+    }
+}
+
+function loadHashrateHistory() {
+    try {
+        const raw = localStorage.getItem(HASHRATE_HISTORY_KEY);
+        if (raw) {
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+                // Filter op max 1 jaar oude data
+                const now = Date.now();
+                hashrateHistory = arr.filter(p => now - p.t <= MAX_HISTORY_MS);
+            }
+        }
+    } catch (e) {
+        console.warn('Kan hashrate history niet laden:', e);
+    }
+}
+
+// Overschrijf updateDashboardChart om altijd op te slaan
+function updateDashboardChart(hashrate) {
+    const now = Date.now();
+    hashrateHistory.push({ t: now, v: hashrate });
+    while (hashrateHistory.length && now - hashrateHistory[0].t > MAX_HISTORY_MS) {
+        hashrateHistory.shift();
+    }
+    saveHashrateHistory();
+    const filtered = filterHashrateHistory(chartRange);
+    let points = filtered;
+    if (filtered.length > 200) {
+        const step = Math.ceil(filtered.length / 200);
+        points = filtered.filter((_, i) => i % step === 0);
+    }
+    if (window.hashrateChart) {
+        window.hashrateChart.data.labels = points.map(p => new Date(p.t).toLocaleTimeString());
+        window.hashrateChart.data.datasets[0].data = points.map(p => p.v);
+        window.hashrateChart.update();
+    }
+}
+
+// Chart range knoppen
+function setupChartRangeButtons() {
+    const btns = document.querySelectorAll('.chart-range-btn');
+    btns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            btns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            chartRange = btn.getAttribute('data-range');
+            // Force update chart
+            updateDashboardChart(hashrateHistory.length ? hashrateHistory[hashrateHistory.length-1].v : 0);
+        });
+    });
+    // Zet default actief
+    if (btns.length) btns[0].classList.add('active');
+}
+
+let chartScale = 'linear';
+
+function setupChartScaleToggle() {
+    const btn = document.getElementById('toggle-scale-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        chartScale = chartScale === 'linear' ? 'logarithmic' : 'linear';
+        btn.textContent = chartScale === 'linear' ? 'Logaritmisch' : 'Lineair';
+        if (window.hashrateChart) {
+            window.hashrateChart.options.scales.y.type = chartScale;
+            window.hashrateChart.options.scales.y.min = chartScale === 'logarithmic' ? 1 : undefined;
+            window.hashrateChart.update();
+        }
+    });
+    btn.textContent = 'Logaritmisch';
+}
+
+function setupDashboardChart() {
+    const ctx = document.getElementById('hashrate-history-chart').getContext('2d');
+    window.hashrateChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: []
+        },
+        options: {
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            return context[0].label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { display: false },
+                y: {
+                    type: chartScale,
+                    beginAtZero: true,
+                    min: undefined,
+                    ticks: { color: '#a0aec0' },
+                    grid: { color: '#2d3748' }
+                }
+            },
+            responsive: true,
+            maintainAspectRatio: false
+        }
+    });
+}
+
+function startDashboardUpdater() {
+    if (dashboardInterval) clearInterval(dashboardInterval);
+    setupDashboardChart();
+    fetchAllRigStats();
+    dashboardInterval = setInterval(fetchAllRigStats, 15000); // elke 15s
+}
+
+function updateDashboardChartMulti(rigs) {
+    // Bepaal tijdsrange
+    const now = Date.now();
+    let ms = 24 * 60 * 60 * 1000;
+    if (chartRange === 'week') ms = 7 * ms;
+    if (chartRange === 'month') ms = 31 * 24 * 60 * 60 * 1000;
+    if (chartRange === 'year') ms = MAX_HISTORY_MS;
+    // Verzamel alle tijdstippen
+    let allTimestamps = new Set();
+    rigs.forEach(rig => {
+        (rigHashrateHistory[rig.id] || []).forEach(p => {
+            if (now - p.t <= ms) allTimestamps.add(p.t);
+        });
+    });
+    let sortedTimestamps = Array.from(allTimestamps).sort((a,b) => a-b);
+    console.log('[DEBUG] sortedTimestamps:', sortedTimestamps);
+    // Downsamplen
+    if (sortedTimestamps.length > 200) {
+        const step = Math.ceil(sortedTimestamps.length / 200);
+        sortedTimestamps = sortedTimestamps.filter((_,i) => i%step===0);
+    }
+    // Maak datasets als array van {x, y}
+    const datasets = rigs.map(rig => {
+        const color = rig.color || '#63b3ed';
+        const data = sortedTimestamps.map(t => {
+            const point = (rigHashrateHistory[rig.id]||[]).find(p => p.t === t);
+            return { x: t, y: point ? point.v : null };
+        });
+        console.log(`[DEBUG] Dataset voor rig ${rig.name}:`, data);
+        return {
+            label: rig.name || 'Rig',
+            data,
+            borderColor: color,
+            backgroundColor: color+'22',
+            tension: 0.25,
+            pointRadius: 0,
+            fill: false
+        };
+    });
+    console.log('[DEBUG] Chart datasets:', datasets);
+    if (window.hashrateChart) {
+        window.hashrateChart.data.labels = []; // leeg bij time scale
+        window.hashrateChart.data.datasets = datasets;
+        window.hashrateChart.update();
+    }
+    saveRigHashrateHistory();
+}
+
+function updateDashboardLegend(rigs) {
+    const legend = document.getElementById('dashboard-legend');
+    if (!legend) return;
+    legend.innerHTML = '';
+    rigs.forEach(rig => {
+        const color = rig.color || '#63b3ed';
+        const div = document.createElement('div');
+        div.className = 'dashboard-legend-item';
+        div.innerHTML = `<span class='dashboard-legend-color' style='background:${color}'></span>${rig.name || 'Rig'} `;
+        legend.appendChild(div);
+    });
+}
+
+function setupDashboardRefreshButton() {
+    const btn = document.getElementById('refresh-dashboard-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        fetchAllRigStats();
+    });
+}
+
+const RIG_HASHRATE_HISTORY_KEY = 'dashboard_rig_hashrate_history_v1';
+
+function saveRigHashrateHistory() {
+    try {
+        localStorage.setItem(RIG_HASHRATE_HISTORY_KEY, JSON.stringify(rigHashrateHistory));
+    } catch (e) {
+        console.warn('Kan rigHashrateHistory niet opslaan:', e);
+    }
+}
+
+function loadRigHashrateHistory() {
+    try {
+        const raw = localStorage.getItem(RIG_HASHRATE_HISTORY_KEY);
+        if (raw) {
+            const obj = JSON.parse(raw);
+            if (typeof obj === 'object' && obj !== null) {
+                // Filter op max 1 jaar oude data per rig
+                const now = Date.now();
+                for (const rigId in obj) {
+                    obj[rigId] = (obj[rigId] || []).filter(p => now - p.t <= MAX_HISTORY_MS);
+                }
+                rigHashrateHistory = obj;
+            }
+        }
+    } catch (e) {
+        console.warn('Kan rigHashrateHistory niet laden:', e);
+    }
+}

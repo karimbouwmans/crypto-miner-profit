@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Division MMPC</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -224,70 +224,40 @@
             </header>
 
             <div class="main-content">
-                <div id="loading-indicator" class="loading-indicator" style="display: none;">
-                    <div class="loading-spinner"></div>
-                    <p id="loading-text">Laden...</p>
-                </div>
-
-                <!-- Mining Rigs Management -->
-                <div class="rigs-management">
-                    <h2>⚡ Mining Rigs Beheer</h2>
-                    <div class="rigs-controls">
-                        <button id="add-rig" class="btn-primary" onclick="addNewRig()">➕ Nieuwe Rig</button>
-                        <button id="test-all-rigs" class="btn-secondary" onclick="testAllRigs()">🌐 Test Alle Rigs</button>
-                        <button id="start-all-monitoring" class="btn-secondary" onclick="startAllRigMonitoring()">▶️ Start Monitoring</button>
-                        <button id="stop-all-monitoring" class="btn-secondary" onclick="stopAllRigMonitoring()">⏸️ Stop Monitoring</button>
-                        <button id="debug-monitoring" class="btn-secondary" onclick="debugRigMonitoring()">🐛 Debug</button>
+                <div id="dashboard" class="dashboard">
+                    <div class="stats-cards">
+                        <div class="stat-card">
+                            <div class="stat-label">Hash Rate</div>
+                            <div class="stat-value" id="stat-hashrate">410.45 <span class="unit">Gh/s</span></div>
+                            <div class="stat-sublabel green" id="stat-hashrate-expected">433 Gh/s expected</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Shares</div>
+                            <div class="stat-value" id="stat-shares">10248</div>
+                            <div class="stat-sublabel red" id="stat-shares-rejected">147 rejected</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Efficiency</div>
+                            <div class="stat-value" id="stat-efficiency">29.97 <span class="unit">J/Th</span></div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Best Difficulty</div>
+                            <div class="stat-value" id="stat-best-diff">539M <span class="unit">all-time best</span></div>
+                            <div class="stat-sublabel" id="stat-diff-boot">16.8M since system boot</div>
+                        </div>
                     </div>
-                    <div id="rigs-list" class="rigs-list">
-                        <!-- Mining rigs worden hier dynamisch geladen -->
+                    <div class="dashboard-chart-controls">
+                        <button class="chart-range-btn" data-range="day">Dag</button>
+                        <button class="chart-range-btn" data-range="week">Week</button>
+                        <button class="chart-range-btn" data-range="month">Maand</button>
+                        <button class="chart-range-btn" data-range="year">Jaar</button>
+                        <button class="chart-scale-btn" id="toggle-scale-btn">Logaritmisch</button>
+                        <button class="chart-refresh-btn" id="refresh-dashboard-btn">Ververs</button>
                     </div>
-                </div>
-
-                <!-- Results Display -->
-                <div class="results-section">
-                    <h2>📊 Resultaten</h2>
-                    <div id="results-container">
-                        <table id="results-table" class="results-table">
-                            <thead>
-                                <tr>
-                                    <th>Coin</th>
-                                    <th>Hashrate</th>
-                                    <th>Dagelijkse Beloning</th>
-                                    <th>Dagelijkse Omzet</th>
-                                    <th>Dagelijkse Kosten</th>
-                                    <th>Dagelijkse Winst</th>
-                                    <th>Winstmarge</th>
-                                </tr>
-                            </thead>
-                            <tbody id="results-body">
-                                <!-- Resultaten worden hier dynamisch geladen -->
-                            </tbody>
-                        </table>
+                    <div class="dashboard-legend" id="dashboard-legend"></div>
+                    <div class="dashboard-chart">
+                        <canvas id="hashrate-history-chart"></canvas>
                     </div>
-                </div>
-
-                <!-- Mining History -->
-                <div class="mining-history">
-                    <h2>📜 Mining Geschiedenis</h2>
-                    <div class="history-table">
-                        <table id="history-table">
-                            <thead>
-                                <tr>
-                                    <th>Datum</th>
-                                    <th>Hashrate</th>
-                                    <th>Beste Coin</th>
-                                    <th>Dagelijkse Winst</th>
-                                    <th>Elektriciteitskosten</th>
-                                    <th>Netto Winst</th>
-                                </tr>
-                            </thead>
-                            <tbody id="history-body">
-                            </tbody>
-                        </table>
-                    </div>
-                    <button id="export-data" class="btn-secondary">📤 Exporteer Data</button>
-                    <button id="clear-history" class="btn-danger">🗑️ Wis Geschiedenis</button>
                 </div>
             </div>
         </div>
