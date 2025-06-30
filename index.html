@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Division MMPC</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Hamburger Menu Button -->
+        <div class="hamburger-menu" id="hamburger-menu">
+            <div class="hamburger-icon">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h3>⚙️ Instellingen</h3>
+                <button class="close-sidebar" id="close-sidebar">×</button>
+            </div>
+            
+            <div class="sidebar-content">
+                <div class="settings-nav">
+                    <div class="nav-section active" data-section="api">
+                        <span class="nav-section-icon">🔗</span>
+                        API Instellingen
+                    </div>
+                    <div class="nav-section" data-section="pool">
+                        <span class="nav-section-icon">⛏️</span>
+                        Mining Pool
+                    </div>
+                    <div class="nav-section" data-section="coins">
+                        <span class="nav-icon">🪙</span>
+                        <span class="nav-text">Coins Beheer</span>
+                    </div>
+                    <div class="nav-section" data-section="profit">
+                        <span class="nav-icon">💰</span>
+                        <span class="nav-text">Profit Calculator</span>
+                    </div>
+                    <div class="nav-section" data-section="rig">
+                        <span class="nav-section-icon">⚡</span>
+                        Mining Rig
+                    </div>
+                </div>
+                
+                <div class="settings-main">
+                    <div class="settings-panel active" id="api-panel">
+                        <div class="settings-section">
+                            <div class="section-header">
+                                <h3 class="section-title">🔗 API Instellingen</h3>
+                            </div>
+                            <div class="section-content">
+                                <div class="setting-group">
+                                    <label for="coinmarketcap-api">CoinMarketCap API Key:</label>
+                                    <input type="text" id="coinmarketcap-api" placeholder="Voer je API key in">
+                                    <small>Optioneel - voor real-time prijzen. Zonder key wordt CoinGecko gebruikt.</small>
+                                </div>
+                                <div class="api-status">
+                                    <span class="status-indicator connected">●</span>
+                                    <span>API Status: Verbonden (CoinGecko)</span>
+                                    <button class="btn-secondary" onclick="testAPI()">Test API</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-panel" id="pool-panel">
+                        <div class="settings-section">
+                            <div class="section-header">
+                                <h3 class="section-title">⛏️ Mining Pool Configuratie</h3>
+                            </div>
+                            <div class="section-content">
+                                <div class="setting-group">
+                                    <label for="pool-select">Pool Selectie:</label>
+                                    <select id="pool-select">
+                                        <option value="antpool">Antpool</option>
+                                        <option value="f2pool">F2Pool</option>
+                                        <option value="poolin">Poolin</option>
+                                        <option value="btccom">BTC.com</option>
+                                        <option value="slushpool">Slushpool</option>
+                                        <option value="viabtc">ViaBTC</option>
+                                        <option value="binance">Binance Pool</option>
+                                        <option value="okex">OKEx Pool</option>
+                                        <option value="custom">Custom Pool</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="pool-config">
+                                    <div class="setting-group">
+                                        <label for="pool-api-key">Pool API Key:</label>
+                                        <input type="text" id="pool-api-key" placeholder="Voer pool API key in">
+                                    </div>
+                                    <div class="setting-group">
+                                        <label for="worker-name">Worker Name:</label>
+                                        <input type="text" id="worker-name" placeholder="MijnRig.001">
+                                    </div>
+                                    <div class="setting-group">
+                                        <label for="pool-url">Custom Pool URL:</label>
+                                        <input type="text" id="pool-url" placeholder="https://pool.example.com">
+                                        <small>Alleen nodig voor custom pools</small>
+                                    </div>
+                                    <div class="pool-status">
+                                        <label>Pool Status:</label>
+                                        <span class="status-indicator connected">●</span>
+                                        <span>Verbonden</span>
+                                        <button class="btn-secondary" onclick="testPool()">Test Pool</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Coins Beheer Panel -->
+                    <div id="coins-panel" class="settings-panel">
+                        <h2>�� Coins Beheer</h2>
+                        <div class="coins-controls">
+                            <button id="refresh-coins" class="btn-secondary" onclick="refreshCoinData()">🔄 Vernieuwen</button>
+                            <button id="add-coin" class="btn-primary" onclick="showAddCoinForm()">➕ Coin Toevoegen</button>
+                            <span id="coin-summary">0 coins beschikbaar</span>
+                        </div>
+                        <div id="coins-list" class="coins-list">
+                            <!-- Coins worden hier dynamisch geladen -->
+                        </div>
+                    </div>
+                    
+                    <!-- Profit Calculator Panel -->
+                    <div id="profit-panel" class="settings-panel">
+                        <h2>💰 Profit Calculator</h2>
+                        <div class="calculator-grid">
+                            <div class="calc-section">
+                                <h3>Dagelijkse Winst</h3>
+                                <div class="profit-display" id="daily-profit">€0.00</div>
+                            </div>
+                            <div class="calc-section">
+                                <h3>Wekelijkse Winst</h3>
+                                <div class="profit-display" id="weekly-profit">€0.00</div>
+                            </div>
+                            <div class="calc-section">
+                                <h3>Maandelijkse Winst</h3>
+                                <div class="profit-display" id="monthly-profit">€0.00</div>
+                            </div>
+                            <div class="calc-section">
+                                <h3>Jaarlijkse Winst</h3>
+                                <div class="profit-display" id="yearly-profit">€0.00</div>
+                            </div>
+                        </div>
+                        <button id="calculate-profit" class="btn-primary">🧮 Bereken Winst</button>
+                        
+                        <!-- Charts -->
+                        <div class="charts-section">
+                            <h3>📈 Grafieken</h3>
+                            <div class="chart-container">
+                                <canvas id="profit-chart"></canvas>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="roi-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-panel" id="rig-panel">
+                        <div class="settings-section">
+                            <div class="section-header">
+                                <h3 class="section-title">⚡ Mining Rig Instellingen</h3>
+                            </div>
+                            <div class="section-content">
+                                <!-- Globale Instellingen -->
+                                <div class="global-settings">
+                                    <h4>🌍 Globale Instellingen</h4>
+                                    <div class="setting-group">
+                                        <label for="electricity-cost">Elektriciteitskosten (€/kWh):</label>
+                                        <input type="number" id="electricity-cost" value="0.25" step="0.01" min="0">
+                                        <small>Globale elektriciteitskosten voor alle rigs</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="rigs-management">
+                                    <h4>Mining Rigs</h4>
+                                    <div class="rigs-controls">
+                                        <button class="btn-secondary" onclick="testAllRigs()">🌐 Test Alle Rigs</button>
+                                        <button class="btn-primary" onclick="addNewRig()">➕ Nieuwe Rig</button>
+                                    </div>
+                                    
+                                    <div id="rigs-list" class="rigs-list">
+                                        <!-- Rigs worden hier dynamisch toegevoegd -->
+                                    </div>
+                                    
+                                    <div class="rig-summary">
+                                        <h4>Totale Capaciteit</h4>
+                                        <div class="summary-grid">
+                                            <div class="summary-item">
+                                                <span class="summary-label">Totale Hashrate:</span>
+                                                <span id="total-hashrate" class="summary-value">0 GH/s</span>
+                                            </div>
+                                            <div class="summary-item">
+                                                <span class="summary-label">Totale Stroomverbruik:</span>
+                                                <span id="total-power" class="summary-value">0 W</span>
+                                            </div>
+                                            <div class="summary-item">
+                                                <span class="summary-label">Dagelijkse Kosten:</span>
+                                                <span id="daily-cost" class="summary-value">€0.00</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-container">
+            <header>
+                <h1>Division Miner monitor and profit calculator</h1>
+            </header>
+
+            <div class="main-content">
+                <div class="dashboard-section">
+                    <div class="dashboard-cards">
+                        <div class="dashboard-card" id="card-hashrate">
+                            <div class="card-label">Hash Rate</div>
+                            <div class="card-value" id="dashboard-hashrate">410.45 <span class="unit">Gh/s</span></div>
+                            <div class="card-sublabel green" id="dashboard-hashrate-expected">433 Gh/s expected</div>
+                            <div class="card-icon">⚡</div>
+                        </div>
+                        <div class="dashboard-card" id="card-shares">
+                            <div class="card-label">Shares</div>
+                            <div class="card-value" id="dashboard-shares">10248</div>
+                            <div class="card-sublabel red" id="dashboard-shares-rejected">147 rejected</div>
+                            <div class="card-icon">📤</div>
+                        </div>
+                        <div class="dashboard-card" id="card-efficiency">
+                            <div class="card-label">Efficiency</div>
+                            <div class="card-value" id="dashboard-efficiency">29.97 <span class="unit">J/Th</span></div>
+                            <div class="card-icon">👍</div>
+                        </div>
+                        <div class="dashboard-card" id="card-difficulty">
+                            <div class="card-label">Best Difficulty</div>
+                            <div class="card-value" id="dashboard-difficulty">539M <span class="unit">all-time best</span></div>
+                            <div class="card-sublabel" id="dashboard-difficulty-boot">16.8M since system boot</div>
+                            <div class="card-icon">⭐</div>
+                        </div>
+                    </div>
+                    <div class="dashboard-graph">
+                        <canvas id="dashboard-hashrate-graph"></canvas>
+                    </div>
+                </div>
+                <div id="loading-indicator" class="loading-indicator" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <p id="loading-text">Laden...</p>
+                </div>
+
+                <!-- Mining Rigs Management -->
+                <div class="rigs-management">
+                    <h2>⚡ Mining Rigs Beheer</h2>
+                    <div class="rigs-controls">
+                        <button id="add-rig" class="btn-primary" onclick="addNewRig()">➕ Nieuwe Rig</button>
+                        <button id="test-all-rigs" class="btn-secondary" onclick="testAllRigs()">🌐 Test Alle Rigs</button>
+                        <button id="start-all-monitoring" class="btn-secondary" onclick="startAllRigMonitoring()">▶️ Start Monitoring</button>
+                        <button id="stop-all-monitoring" class="btn-secondary" onclick="stopAllRigMonitoring()">⏸️ Stop Monitoring</button>
+                        <button id="debug-monitoring" class="btn-secondary" onclick="debugRigMonitoring()">🐛 Debug</button>
+                    </div>
+                    <div id="rigs-list" class="rigs-list">
+                        <!-- Mining rigs worden hier dynamisch geladen -->
+                    </div>
+                </div>
+
+                <!-- Results Display -->
+                <div class="results-section">
+                    <h2>📊 Resultaten</h2>
+                    <div id="results-container">
+                        <table id="results-table" class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Coin</th>
+                                    <th>Hashrate</th>
+                                    <th>Dagelijkse Beloning</th>
+                                    <th>Dagelijkse Omzet</th>
+                                    <th>Dagelijkse Kosten</th>
+                                    <th>Dagelijkse Winst</th>
+                                    <th>Winstmarge</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-body">
+                                <!-- Resultaten worden hier dynamisch geladen -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Mining History -->
+                <div class="mining-history">
+                    <h2>📜 Mining Geschiedenis</h2>
+                    <div class="history-table">
+                        <table id="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Datum</th>
+                                    <th>Hashrate</th>
+                                    <th>Beste Coin</th>
+                                    <th>Dagelijkse Winst</th>
+                                    <th>Elektriciteitskosten</th>
+                                    <th>Netto Winst</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <button id="export-data" class="btn-secondary">📤 Exporteer Data</button>
+                    <button id="clear-history" class="btn-danger">🗑️ Wis Geschiedenis</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Overlay -->
+        <div class="overlay" id="overlay"></div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html> 

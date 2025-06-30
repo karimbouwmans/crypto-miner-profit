@@ -1,0 +1,2248 @@
+const { ipcRenderer } = require('electron');
+const axios = require('axios');
+const MiningPoolService = require('./mining-pools.js');
+
+// Import demo data
+const { DEMO_COIN_DATA, DEMO_SETTINGS } = require('./demo-data.js');
+
+// Globale variabelen
+let selectedCoins = [];
+let coinData = [];
+let charts = {};
+let miningPoolService = new MiningPoolService();
+let poolData = null;
+
+// Real-time hashrate monitoring
+let hashrateUpdateInterval = null;
+let rigMonitoringIntervals = {};
+
+// Mining Rigs Management
+let miningRigs = [];
+let activeRigId = null;
+
+// Coins Management
+let manualCoins = []; // Handmatig toegevoegde coins
+
+// Beschikbare rig types en algoritmes
+const RIG_TYPES = [
+    { id: 'bitaxe', name: 'Bitaxe', algorithm: 'SHA-256', apiEndpoint: '/api/system/info' },
+    { id: 'nerdaxe', name: 'Nerdaxe', algorithm: 'SHA-256', apiEndpoint: '/api/system/info' },
+    { id: 'asic', name: 'ASIC Miner', algorithm: 'SHA-256', apiEndpoint: '/api/v1/summary' },
+    { id: 'gpu', name: 'GPU Rig', algorithm: 'SHA-256', apiEndpoint: '/api/v1/summary' },
+    { id: 'custom', name: 'Custom Miner', algorithm: 'SHA-256', apiEndpoint: '/api/v1/summary' }
+];
+
+const ALGORITHMS = [
+    { id: 'sha256', name: 'SHA-256', coins: ['BTC', 'BCH', 'BSV', 'BTG'] },
+    { id: 'scrypt', name: 'Scrypt', coins: ['LTC', 'DOGE'] },
+    { id: 'ethash', name: 'Ethash', coins: ['ETH', 'ETC'] },
+    { id: 'kawpow', name: 'Kawpow', coins: ['RVN'] },
+    { id: 'randomx', name: 'RandomX', coins: ['XMR'] }
+];
+
+// SHA-256 Coins database
+const SHA256_COINS = [
+    { symbol: 'BTC', name: 'Bitcoin', algorithm: 'SHA-256' },
+    { symbol: 'BCH', name: 'Bitcoin Cash', algorithm: 'SHA-256' },
+    { symbol: 'BSV', name: 'Bitcoin SV', algorithm: 'SHA-256' },
+    { symbol: 'BTG', name: 'Bitcoin Gold', algorithm: 'SHA-256' },
+    { symbol: 'DGB', name: 'DigiByte', algorithm: 'SHA-256' },
+    { symbol: 'LTC', name: 'Litecoin', algorithm: 'SHA-256' },
+    { symbol: 'NMC', name: 'Namecoin', algorithm: 'SHA-256' },
+    { symbol: 'PPC', name: 'Peercoin', algorithm: 'SHA-256' },
+    { symbol: 'XPM', name: 'Primecoin', algorithm: 'SHA-256' },
+    { symbol: 'NVC', name: 'Novacoin', algorithm: 'SHA-256' },
+    { symbol: 'EMC2', name: 'Einsteinium', algorithm: 'SHA-256' },
+    { symbol: 'UNO', name: 'Unobtanium', algorithm: 'SHA-256' },
+    { symbol: 'MZC', name: 'MazaCoin', algorithm: 'SHA-256' },
+    { symbol: 'AUR', name: 'Auroracoin', algorithm: 'SHA-256' },
+    { symbol: 'DVC', name: 'Devcoin', algorithm: 'SHA-256' },
+    { symbol: 'FRC', name: 'Freicoin', algorithm: 'SHA-256' },
+    { symbol: 'IXC', name: 'Ixcoin', algorithm: 'SHA-256' },
+    { symbol: 'NXT', name: 'Nxt', algorithm: 'SHA-256' },
+    { symbol: 'POT', name: 'PotCoin', algorithm: 'SHA-256' },
+    { symbol: 'TAG', name: 'TagCoin', algorithm: 'SHA-256' }
+];
+
+// DOM elementen
+const elements = {
+    hashrate: document.getElementById('hashrate'),
+    powerConsumption: document.getElementById('power-consumption'),
+    electricityCost: document.getElementById('electricity-cost'),
+    poolFee: document.getElementById('pool-fee'),
+    coinmarketcapApi: document.getElementById('coinmarketcap-api'),
+    saveSettings: document.getElementById('save-settings'),
+    loadSettings: document.getElementById('load-settings'),
+    coinGrid: document.getElementById('coin-grid'),
+    refreshCoins: document.getElementById('refresh-coins'),
+    calculateProfit: document.getElementById('calculate-profit'),
+    dailyProfit: document.getElementById('daily-profit'),
+    weeklyProfit: document.getElementById('weekly-profit'),
+    monthlyProfit: document.getElementById('monthly-profit'),
+    yearlyProfit: document.getElementById('yearly-profit'),
+    resultsBody: document.getElementById('results-body'),
+    historyBody: document.getElementById('history-body'),
+    exportData: document.getElementById('export-data'),
+    clearHistory: document.getElementById('clear-history'),
+    statusIndicator: document.getElementById('status-indicator'),
+    statusText: document.getElementById('status-text'),
+    // Pool configuratie elementen
+    miningPool: document.getElementById('mining-pool'),
+    poolConfig: document.getElementById('pool-config'),
+    poolApiKey: document.getElementById('pool-api-key'),
+    poolWorker: document.getElementById('pool-worker'),
+    poolUrl: document.getElementById('pool-url'),
+    poolStatusIndicator: document.getElementById('pool-status-indicator'),
+    poolStatusText: document.getElementById('pool-status-text'),
+    testPool: document.getElementById('test-pool')
+};
+
+// Event listeners
+window.addEventListener('DOMContentLoaded', () => {
+    initializeApp();
+    setupEventListeners();
+});
+
+function initializeApp() {
+    // Laad instellingen en geschiedenis direct
+    loadSettings();
+    loadMiningHistory();
+    loadRigsFromStorage(); // Laad mining rigs
+    loadManualCoins(); // Laad handmatige coins
+    
+    // Start automatische monitoring voor actieve rigs na 5 seconden
+    setTimeout(() => {
+        startAllRigMonitoring();
+    }, 5000);
+    
+    // NIET direct renderCoinGrid() of updateApiStatus() hier
+    // Eerst event listeners zetten in setupEventListeners()
+    // Daarna pas UI renderen
+}
+
+function setupEventListeners() {
+    // Alleen event listeners toevoegen voor bestaande elementen
+    if (elements.saveSettings) {
+        elements.saveSettings.addEventListener('click', saveSettings);
+    }
+    if (elements.loadSettings) {
+        elements.loadSettings.addEventListener('click', loadSettings);
+    }
+    if (elements.calculateProfit) {
+        elements.calculateProfit.addEventListener('click', calculateProfit);
+    }
+    if (elements.exportData) {
+        elements.exportData.addEventListener('click', exportData);
+    }
+    if (elements.clearHistory) {
+        elements.clearHistory.addEventListener('click', clearHistory);
+    }
+    
+    // API key change handler
+    if (elements.coinmarketcapApi) {
+        elements.coinmarketcapApi.addEventListener('input', handleApiKeyChange);
+    }
+    
+    // Test API knop
+    const testApiBtn = document.getElementById('test-api');
+    if (testApiBtn) {
+        testApiBtn.addEventListener('click', testApiConnection);
+    }
+    
+    // Pool configuratie
+    if (elements.miningPool) {
+        elements.miningPool.addEventListener('change', handlePoolSelection);
+    }
+    
+    if (elements.testPool) {
+        elements.testPool.addEventListener('click', testPoolConnection);
+    }
+    
+    // Hamburger menu functionaliteit
+    const hamburgerMenu = document.getElementById('hamburger-menu');
+    const sidebar = document.getElementById('sidebar');
+    const closeSidebar = document.getElementById('close-sidebar');
+    const overlay = document.getElementById('overlay');
+    const mainContainer = document.querySelector('.main-container');
+    
+    if (hamburgerMenu) {
+        hamburgerMenu.addEventListener('click', () => {
+            sidebar.classList.add('open');
+            overlay.classList.add('active');
+            mainContainer.classList.add('sidebar-open');
+        });
+    }
+    if (closeSidebar) {
+        closeSidebar.addEventListener('click', closeSidebarMenu);
+    }
+    if (overlay) {
+        overlay.addEventListener('click', closeSidebarMenu);
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeSidebarMenu();
+        }
+    });
+    // Navigatie functionaliteit
+    const navSections = document.querySelectorAll('.nav-section');
+    const settingsPanels = document.querySelectorAll('.settings-panel');
+    navSections.forEach(section => {
+        section.addEventListener('click', function() {
+            const targetSection = this.getAttribute('data-section');
+            navSections.forEach(nav => nav.classList.remove('active'));
+            this.classList.add('active');
+            settingsPanels.forEach(panel => panel.classList.remove('active'));
+            document.getElementById(targetSection + '-panel').classList.add('active');
+        });
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey) {
+            switch(e.key) {
+                case '1': e.preventDefault(); switchToSection('api'); break;
+                case '2': e.preventDefault(); switchToSection('pool'); break;
+                case '3': e.preventDefault(); switchToSection('rig'); break;
+                case '4': e.preventDefault(); switchToSection('coins'); break;
+                case '5': e.preventDefault(); switchToSection('profit'); break;
+            }
+        }
+    });
+    function switchToSection(sectionName) {
+        navSections.forEach(nav => nav.classList.remove('active'));
+        settingsPanels.forEach(panel => panel.classList.remove('active'));
+        document.querySelector(`[data-section="${sectionName}"]`).classList.add('active');
+        document.getElementById(sectionName + '-panel').classList.add('active');
+    }
+    // Nu pas UI renderen
+    coinData = DEMO_COIN_DATA;
+    renderCoinsList(); // Update coins lijst in instellingen
+    hideLoading();
+    updateApiStatus('demo', 'Demo data actief');
+    // Check of er een API key is en laad dan real-time data
+    const apiKey = elements.coinmarketcapApi ? elements.coinmarketcapApi.value : '';
+    if (apiKey && apiKey.trim() && apiKey !== 'demo-key') {
+        setTimeout(() => {
+            loadCoinData();
+        }, 1000);
+    }
+    // Initialiseer charts op de achtergrond
+    setTimeout(() => {
+        initializeCharts();
+    }, 500);
+    
+    // Globale instellingen
+    if (elements.electricityCost) {
+        elements.electricityCost.addEventListener('change', () => {
+            updateRigSummary(); // Update rig summary wanneer elektriciteitskosten veranderen
+        });
+    }
+    
+    if (elements.poolFee) {
+        elements.poolFee.addEventListener('change', () => {
+            // Update berekeningen wanneer pool fee verandert
+            // Profit calculator wordt nu in instellingen beheerd
+        });
+    }
+}
+
+function closeSidebarMenu() {
+    console.log('Closing sidebar menu...');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    const mainContainer = document.querySelector('.main-container');
+    
+    console.log('Sidebar element in close function:', sidebar);
+    console.log('Overlay element in close function:', overlay);
+    console.log('Main container element in close function:', mainContainer);
+    
+    sidebar.classList.remove('open');
+    overlay.classList.remove('active');
+    mainContainer.classList.remove('sidebar-open');
+}
+
+function handlePoolSelection() {
+    const selectedPool = elements.miningPool.value;
+    const poolConfig = elements.poolConfig;
+    const testPoolBtn = elements.testPool;
+    
+    if (selectedPool && selectedPool !== '') {
+        poolConfig.style.display = 'block';
+        testPoolBtn.style.display = 'block';
+        
+        // Toon custom URL veld alleen voor custom pools
+        const poolUrlField = elements.poolUrl.parentElement;
+        if (selectedPool === 'custom') {
+            poolUrlField.style.display = 'block';
+        } else {
+            poolUrlField.style.display = 'none';
+        }
+    } else {
+        poolConfig.style.display = 'none';
+        testPoolBtn.style.display = 'none';
+        
+        // Stop monitoring als pool wordt uitgeschakeld
+        stopHashrateMonitoring();
+        poolData = null;
+        updatePoolStatus('error', 'Geen pool gekoppeld');
+    }
+}
+
+async function testPoolConnection() {
+    const poolType = elements.miningPool.value;
+    const apiKey = elements.poolApiKey.value;
+    const workerName = elements.poolWorker.value;
+    const customUrl = elements.poolUrl.value;
+    
+    if (!poolType || !apiKey) {
+        alert('Selecteer een pool en voer een API key in!');
+        return;
+    }
+    
+    updatePoolStatus('loading', 'Testen van pool verbinding...');
+    
+    try {
+        const result = await miningPoolService.testPoolConnection(poolType, apiKey, workerName, customUrl);
+        
+        if (result.success) {
+            updatePoolStatus('connected', `${result.poolName} verbonden!`);
+            
+            // Haal pool data op voor real-time berekeningen
+            poolData = await miningPoolService.fetchPoolData(poolType, apiKey, workerName, customUrl);
+            
+            // Update hashrate automatisch als pool data beschikbaar is
+            if (poolData && poolData.hashRate) {
+                try {
+                    const realHashrate = miningPoolService.extractHashRate(poolData.hashRate);
+                    if (realHashrate > 0) {
+                        const hashrateInGHs = realHashrate / 1e9;
+                        elements.hashrate.value = hashrateInGHs.toFixed(2);
+                        console.log(`Hashrate automatisch bijgewerkt naar ${hashrateInGHs.toFixed(2)} GH/s`);
+                        
+                        // Start real-time monitoring
+                        startHashrateMonitoring();
+                    }
+                } catch (error) {
+                    console.error('Error updating hashrate from pool data:', error);
+                }
+            }
+            
+            setTimeout(() => {
+                updatePoolStatus('connected', `${result.poolName} actief`);
+            }, 2000);
+        } else {
+            updatePoolStatus('error', `Fout: ${result.error}`);
+            setTimeout(() => {
+                updatePoolStatus('error', 'Pool verbinding gefaald');
+            }, 2000);
+        }
+    } catch (error) {
+        console.error('Pool test error:', error);
+        updatePoolStatus('error', 'Pool test gefaald');
+    }
+}
+
+function updatePoolStatus(status, message) {
+    const indicator = elements.poolStatusIndicator;
+    const text = elements.poolStatusText;
+    
+    // Reset classes
+    indicator.className = 'status-indicator';
+    
+    switch (status) {
+        case 'loading':
+            indicator.textContent = '⏳';
+            break;
+        case 'connected':
+            indicator.textContent = '🟢';
+            indicator.classList.add('connected');
+            break;
+        case 'error':
+            indicator.textContent = '🔴';
+            indicator.classList.add('error');
+            break;
+        default:
+            indicator.textContent = '⚪';
+    }
+    
+    text.textContent = message;
+}
+
+async function loadCoinData() {
+    const apiKey = elements.coinmarketcapApi ? elements.coinmarketcapApi.value : '';
+    
+    // Toon loading state
+    showLoading('Laden van coin data...');
+    updateApiStatus('loading', 'Testen van API...');
+    
+    try {
+        // Gebruik demo data als standaard voor snelle laadtijd
+        coinData = DEMO_COIN_DATA;
+        renderCoinsList(); // Update coins lijst in instellingen
+        hideLoading();
+        updateApiStatus('demo', 'Demo data actief');
+        
+        // Probeer real-time data alleen als er een API key is
+        if (apiKey && apiKey.trim() && apiKey !== 'demo-key') {
+            setTimeout(async () => {
+                try {
+                    const symbols = SHA256_COINS.map(coin => coin.symbol).join(',');
+                    const response = await axios.get(`https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest`, {
+                        params: {
+                            symbol: symbols,
+                            convert: 'EUR'
+                        },
+                        headers: {
+                            'X-CMC_PRO_API_KEY': apiKey
+                        },
+                        timeout: 5000 // 5 seconden timeout
+                    });
+
+                    coinData = Object.values(response.data.data).map(coin => ({
+                        symbol: coin.symbol,
+                        name: coin.name,
+                        price: coin.quote.EUR.price,
+                        marketCap: coin.quote.EUR.market_cap,
+                        volume24h: coin.quote.EUR.volume_24h,
+                        change24h: coin.quote.EUR.percent_change_24h
+                    }));
+                    
+                    renderCoinsList(); // Update coins lijst in instellingen
+                    updateApiStatus('connected', 'CoinMarketCap API actief');
+                    console.log('Real-time data geladen');
+                } catch (cmcError) {
+                    console.log('CoinMarketCap API gefaald, probeer CoinGecko...');
+                    updateApiStatus('fallback', 'CoinGecko API wordt gebruikt...');
+                    
+                    try {
+                        await loadCoinGeckoData();
+                        renderCoinsList(); // Update coins lijst in instellingen
+                        updateApiStatus('fallback', 'CoinGecko API actief');
+                    } catch (geckoError) {
+                        console.error('Alle APIs gefaald, blijf bij demo data');
+                        updateApiStatus('error', 'Demo data (API fout)');
+                    }
+                }
+            }, 100); // Start na 100ms voor snelle initiële laadtijd
+        } else {
+            // Geen API key - blijf bij demo data
+            updateApiStatus('demo', 'Demo data (geen API key)');
+        }
+        
+    } catch (error) {
+        console.error('Error loading coin data:', error);
+        coinData = DEMO_COIN_DATA;
+        renderCoinsList(); // Update coins lijst in instellingen
+        hideLoading();
+        updateApiStatus('error', 'Demo data (API fout)');
+    }
+}
+
+async function loadCoinGeckoData() {
+    try {
+        // CoinGecko API - gratis, geen API key nodig
+        const coinIds = getCoinGeckoIds();
+        const response = await axios.get(`https://api.coingecko.com/api/v3/simple/price`, {
+            params: {
+                ids: coinIds.join(','),
+                vs_currencies: 'eur',
+                include_24hr_change: true,
+                include_market_cap: true,
+                include_24hr_vol: true
+            },
+            timeout: 5000 // 5 seconden timeout
+        });
+
+        coinData = SHA256_COINS.map(coin => {
+            const coinId = getCoinGeckoId(coin.symbol);
+            const data = response.data[coinId];
+            
+            if (data) {
+                return {
+                    symbol: coin.symbol,
+                    name: coin.name,
+                    price: data.eur || 0,
+                    marketCap: data.eur_market_cap || 0,
+                    volume24h: data.eur_24h_vol || 0,
+                    change24h: data.eur_24h_change || 0
+                };
+            } else {
+                // Fallback naar demo data voor deze coin
+                const demoCoin = DEMO_COIN_DATA.find(dc => dc.symbol === coin.symbol);
+                return demoCoin || {
+                    symbol: coin.symbol,
+                    name: coin.name,
+                    price: 0,
+                    marketCap: 0,
+                    volume24h: 0,
+                    change24h: 0
+                };
+            }
+        });
+        
+        console.log('CoinGecko data geladen');
+    } catch (error) {
+        console.error('Error loading CoinGecko data:', error);
+        throw error;
+    }
+}
+
+function getCoinGeckoIds() {
+    return SHA256_COINS.map(coin => getCoinGeckoId(coin.symbol)).filter(id => id);
+}
+
+function getCoinGeckoId(symbol) {
+    const coinMap = {
+        'BTC': 'bitcoin',
+        'BCH': 'bitcoin-cash',
+        'BSV': 'bitcoin-sv',
+        'BTG': 'bitcoin-gold',
+        'DGB': 'digibyte',
+        'LTC': 'litecoin',
+        'NMC': 'namecoin',
+        'PPC': 'peercoin',
+        'XPM': 'primecoin',
+        'NVC': 'novacoin',
+        'EMC2': 'einsteinium',
+        'UNO': 'unobtanium',
+        'MZC': 'mazacoin',
+        'AUR': 'auroracoin',
+        'DVC': 'devcoin',
+        'FRC': 'freicoin',
+        'IXC': 'ixcoin',
+        'NXT': 'nxt',
+        'POT': 'potcoin',
+        'TAG': 'tagcoin'
+    };
+    return coinMap[symbol] || null;
+}
+
+function renderCoinGrid() {
+    if (!elements.coinGrid) return;
+    
+    elements.coinGrid.innerHTML = '';
+    
+    // Combineer API coins en handmatige coins
+    const allCoins = [...coinData, ...manualCoins];
+    
+    allCoins.forEach(coin => {
+        const card = document.createElement('div');
+        card.className = 'coin-card';
+        card.innerHTML = `
+            <div class="coin-header">
+                <h3>${coin.symbol}</h3>
+                <span class="coin-name">${coin.name}</span>
+                ${coin._manual ? '<span class="manual-badge">Handmatig</span>' : ''}
+            </div>
+            <div class="coin-price">€${coin.price.toFixed(4)}</div>
+            <div class="coin-change ${coin.change24h >= 0 ? 'positive' : 'negative'}">
+                ${coin.change24h >= 0 ? '+' : ''}${coin.change24h.toFixed(2)}%
+            </div>
+        `;
+        
+        card.addEventListener('click', () => toggleCoinSelection(coin, card));
+        elements.coinGrid.appendChild(card);
+    });
+    
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const selectedCount = document.getElementById('selected-count');
+    if (selectedCount) {
+        selectedCount.textContent = `${selectedCoins.length} coins geselecteerd`;
+    }
+}
+
+function toggleCoinSelection(coin, card) {
+    const index = selectedCoins.findIndex(c => c.symbol === coin.symbol);
+    
+    if (index === -1) {
+        selectedCoins.push(coin);
+        card.classList.add('selected');
+    } else {
+        selectedCoins.splice(index, 1);
+        card.classList.remove('selected');
+    }
+    
+    updateSelectedCount();
+}
+
+// Mining Rigs Management
+function addNewRig() {
+    const newRig = {
+        id: Date.now().toString(),
+        name: `Rig ${miningRigs.length + 1}`,
+        hashrate: 100,
+        powerConsumption: 1000,
+        isActive: true,
+        ipAddress: '',
+        rigType: 'nerdaxe', // Default naar Nerdaxe
+        algorithm: 'sha256', // Default naar SHA-256
+        customApiEndpoint: '/api/system/info', // Default Nerdaxe endpoint
+        miningCoin: 'BTC', // Default naar Bitcoin
+        // Pool informatie (wordt opgehaald via API)
+        poolUrl: '',
+        poolPort: '',
+        poolUser: ''
+    };
+    
+    miningRigs.push(newRig);
+    saveRigsToStorage();
+    renderRigsList();
+    setActiveRig(newRig.id);
+}
+
+function deleteRig(rigId) {
+    if (confirm('Weet je zeker dat je deze rig wilt verwijderen?')) {
+        miningRigs = miningRigs.filter(rig => rig.id !== rigId);
+        
+        if (activeRigId === rigId) {
+            activeRigId = miningRigs.length > 0 ? miningRigs[0].id : null;
+        }
+        
+        renderRigsList();
+        updateRigSummary();
+        saveRigsToStorage();
+    }
+}
+
+function toggleRig(rigId) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (rig) {
+        rig.isActive = !rig.isActive;
+        renderRigsList();
+        updateRigSummary();
+        saveRigsToStorage();
+    }
+}
+
+function editRig(rigId) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (rig) {
+        const newName = prompt('Nieuwe naam voor de rig:', rig.name);
+        if (newName && newName.trim()) {
+            rig.name = newName.trim();
+            renderRigsList();
+            saveRigsToStorage();
+        }
+    }
+}
+
+function renderRigsList() {
+    const rigsList = document.getElementById('rigs-list');
+    if (!rigsList) return;
+    
+    rigsList.innerHTML = '';
+    
+    if (miningRigs.length === 0) {
+        rigsList.innerHTML = `
+            <div class="rig-card" style="text-align: center; color: #718096;">
+                <p>Geen mining rigs toegevoegd</p>
+                <p>Klik op "Nieuwe Rig" om je eerste rig toe te voegen</p>
+            </div>
+        `;
+        return;
+    }
+    
+    miningRigs.forEach(rig => {
+        const rigType = RIG_TYPES.find(rt => rt.id === rig.rigType) || RIG_TYPES[0];
+        const algorithm = ALGORITHMS.find(alg => alg.id === rig.algorithm) || ALGORITHMS[0];
+        
+        const rigCard = document.createElement('div');
+        rigCard.className = `rig-card ${rig.id === activeRigId ? 'active' : ''}`;
+        rigCard.setAttribute('data-rig-id', rig.id);
+        
+        // Status indicator
+        const isHashing = rig.isHashing || false;
+        const statusMessage = rig.statusMessage || 'Status onbekend';
+        
+        rigCard.innerHTML = `
+            <div class="rig-header">
+                <div class="rig-info">
+                    <div class="rig-name">${rig.name}</div>
+                    <div class="rig-details">
+                        <span class="rig-type">${rigType.name}</span>
+                        <span class="rig-algorithm">${algorithm.name}</span>
+                        ${rig.miningCoin ? `<span class="rig-coin">🪙 ${rig.miningCoin}</span>` : ''}
+                        ${rig.poolUrl ? `<span class="rig-pool">🏊 ${rig.poolUrl.split('.')[0]}</span>` : ''}
+                    </div>
+                </div>
+                <div class="rig-status">
+                    <div class="rig-status-indicator ${isHashing ? 'hashing' : 'idle'}">
+                        ${isHashing ? '🟢' : '🔴'}
+                    </div>
+                    <div class="rig-status-text">${statusMessage}</div>
+                </div>
+                <div class="rig-actions">
+                    <button class="btn-toggle ${isHashing ? 'hashing' : 'idle'}" onclick="toggleRig('${rig.id}')">
+                        ${isHashing ? '🟢 Hashing' : '🔴 Idle'}
+                    </button>
+                    <button class="btn-test" onclick="testRigIP('${rig.id}')" title="Test IP verbinding">🌐</button>
+                    <button class="btn-monitor" onclick="toggleRigMonitoring('${rig.id}')" title="Toggle monitoring">
+                        ${rigMonitoringIntervals[rig.id] ? '⏸️' : '▶️'}
+                    </button>
+                    <button class="btn-edit" onclick="editRig('${rig.id}')">✏️</button>
+                    <button class="btn-delete" onclick="deleteRig('${rig.id}')">🗑️</button>
+                </div>
+            </div>
+            <div class="rig-fields">
+                <div class="rig-field">
+                    <label>Rig Type:</label>
+                    <select data-field="rigType" onchange="updateRigField('${rig.id}', 'rigType', this.value)" onclick="event.stopPropagation()">
+                        ${RIG_TYPES.map(rt => `<option value="${rt.id}" ${rig.rigType === rt.id ? 'selected' : ''}>${rt.name}</option>`).join('')}
+                    </select>
+                    <small>Type mining rig</small>
+                </div>
+                <div class="rig-field">
+                    <label>Algoritme:</label>
+                    <select data-field="algorithm" onchange="updateRigField('${rig.id}', 'algorithm', this.value)" onclick="event.stopPropagation()">
+                        ${ALGORITHMS.map(alg => `<option value="${alg.id}" ${rig.algorithm === alg.id ? 'selected' : ''}>${alg.name}</option>`).join('')}
+                    </select>
+                    <small>Mining algoritme</small>
+                </div>
+                <div class="rig-field">
+                    <label>Hashrate (GH/s):</label>
+                    <input type="number" data-field="hashrate" value="${rig.hashrate}" step="0.1" 
+                           onchange="updateRigField('${rig.id}', 'hashrate', this.value)"
+                           onclick="event.stopPropagation()" ${rig._hashrateFromApi ? 'readonly style=\'background:#eaffea;font-weight:bold\'' : ''}>
+                    <small>Mining rig hashrate${rig._hashrateFromApi ? ' <span style=\'color:green;font-weight:bold\'>(live)</span>' : ''}</small>
+                </div>
+                <div class="rig-field">
+                    <label>Stroomverbruik (W):</label>
+                    <input type="number" data-field="powerConsumption" value="${rig.powerConsumption}" 
+                           onchange="updateRigField('${rig.id}', 'powerConsumption', this.value)"
+                           onclick="event.stopPropagation()" ${rig._powerFromApi ? 'readonly style=\'background:#eaffea;font-weight:bold\'' : ''}>
+                    <small>Totale stroomverbruik${rig._powerFromApi ? ' <span style=\'color:green;font-weight:bold\'>(live)</span>' : ''}</small>
+                </div>
+                <div class="rig-field">
+                    <label>IP Adres:</label>
+                    <input type="text" data-field="ipAddress" value="${rig.ipAddress}" 
+                           onchange="updateRigField('${rig.id}', 'ipAddress', this.value)"
+                           onclick="event.stopPropagation()"
+                           placeholder="192.168.1.100">
+                    <small>IP adres van de mining rig</small>
+                </div>
+                <div class="rig-field">
+                    <label>API Endpoint:</label>
+                    <input type="text" data-field="customApiEndpoint" value="${rig.customApiEndpoint || rigType.apiEndpoint}" 
+                           onchange="updateRigField('${rig.id}', 'customApiEndpoint', this.value)"
+                           onclick="event.stopPropagation()"
+                           placeholder="${rigType.apiEndpoint}">
+                    <small>API endpoint voor rig monitoring</small>
+                </div>
+                <div class="rig-field">
+                    <label>Mining Coin:</label>
+                    <select data-field="miningCoin" onchange="updateRigField('${rig.id}', 'miningCoin', this.value)" onclick="event.stopPropagation()">
+                        <option value="">-- Selecteer Coin --</option>
+                        ${getAvailableCoins().map(coin => `<option value="${coin.symbol}" ${rig.miningCoin === coin.symbol ? 'selected' : ''}>${coin.symbol} - ${coin.name}</option>`).join('')}
+                    </select>
+                    <small>Coin waarop deze rig minet</small>
+                </div>
+                
+                <!-- Pool Informatie Sectie -->
+                <div class="rig-section-header">
+                    <h5>🏊 Pool Informatie</h5>
+                    ${rig._poolFromApi ? '<span class="api-badge">Live</span>' : ''}
+                </div>
+                
+                <div class="rig-field">
+                    <label>Pool URL:</label>
+                    <input type="text" data-field="poolUrl" value="${rig.poolUrl}" 
+                           onchange="updateRigField('${rig.id}', 'poolUrl', this.value)"
+                           onclick="event.stopPropagation()"
+                           placeholder="sha256.unmineable.com"
+                           ${rig._poolFromApi ? 'readonly style=\'background:#eaffea;font-weight:bold\'' : ''}>
+                    <small>Pool server URL${rig._poolFromApi ? ' <span style=\'color:green;font-weight:bold\'>(live)</span>' : ''}</small>
+                </div>
+                
+                <div class="rig-field">
+                    <label>Pool Port:</label>
+                    <input type="text" data-field="poolPort" value="${rig.poolPort}" 
+                           onchange="updateRigField('${rig.id}', 'poolPort', this.value)"
+                           onclick="event.stopPropagation()"
+                           placeholder="5555"
+                           ${rig._poolFromApi ? 'readonly style=\'background:#eaffea;font-weight:bold\'' : ''}>
+                    <small>Pool server port${rig._poolFromApi ? ' <span style=\'color:green;font-weight:bold\'>(live)</span>' : ''}</small>
+                </div>
+                
+                <div class="rig-field">
+                    <label>Pool User:</label>
+                    <input type="text" data-field="poolUser" value="${rig.poolUser}" 
+                           onchange="updateRigField('${rig.id}', 'poolUser', this.value)"
+                           onclick="event.stopPropagation()"
+                           placeholder="LTC:ltc1q4kn483yr3g969dkyecsj94k2d4cnlc3s6gt4a5.nerd04"
+                           ${rig._poolFromApi ? 'readonly style=\'background:#eaffea;font-weight:bold\'' : ''}>
+                    <small>Pool username/worker${rig._poolFromApi ? ' <span style=\'color:green;font-weight:bold\'>(live)</span>' : ''}</small>
+                </div>
+            </div>
+        `;
+        
+        // Voeg event listeners toe voor input velden
+        const inputs = rigCard.querySelectorAll('input, select');
+        inputs.forEach(input => {
+            // Voorkom event bubbling voor alle input events
+            ['click', 'focus', 'blur', 'input', 'change', 'keydown', 'keyup'].forEach(eventType => {
+                input.addEventListener(eventType, (e) => {
+                    e.stopPropagation();
+                });
+            });
+            
+            // Specifieke handler voor change events
+            input.addEventListener('change', (e) => {
+                e.stopPropagation();
+                const field = e.target.getAttribute('data-field') || e.target.name;
+                const value = e.target.value;
+                if (field && value !== undefined) {
+                    updateRigField(rig.id, field, value);
+                }
+            });
+        });
+        
+        rigCard.addEventListener('click', (e) => {
+            if (!e.target.closest('.rig-actions') && !e.target.closest('input') && !e.target.closest('select')) {
+                setActiveRig(rig.id);
+            }
+        });
+        
+        rigsList.appendChild(rigCard);
+    });
+}
+
+function updateRigField(rigId, field, value) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (rig) {
+        // Validatie per veld
+        switch(field) {
+            case 'rigType':
+                rig.rigType = value;
+                // Update API endpoint als het een bekend type is
+                const rigType = RIG_TYPES.find(rt => rt.id === value);
+                if (rigType && !rig.customApiEndpoint) {
+                    rig.customApiEndpoint = rigType.apiEndpoint;
+                }
+                break;
+            case 'algorithm':
+                rig.algorithm = value;
+                break;
+            case 'customApiEndpoint':
+                rig.customApiEndpoint = value.trim();
+                break;
+            case 'miningCoin':
+                rig.miningCoin = value;
+                break;
+            case 'poolUrl':
+                rig.poolUrl = value.trim();
+                break;
+            case 'poolPort':
+                rig.poolPort = value.trim();
+                break;
+            case 'poolUser':
+                rig.poolUser = value.trim();
+                break;
+            case 'hashrate':
+                const hashrateValue = parseFloat(value);
+                if (hashrateValue >= 0) {
+                    rig.hashrate = hashrateValue;
+                } else {
+                    alert('Hashrate moet een positief getal zijn');
+                    return;
+                }
+                break;
+            case 'powerConsumption':
+                const powerValue = parseFloat(value);
+                if (powerValue >= 0) {
+                    rig.powerConsumption = powerValue;
+                } else {
+                    alert('Stroomverbruik moet een positief getal zijn');
+                    return;
+                }
+                break;
+            case 'ipAddress':
+                // Eenvoudige IP-adres validatie
+                const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                if (value.trim() === '' || ipRegex.test(value.trim())) {
+                    rig.ipAddress = value.trim();
+                } else {
+                    alert('Voer een geldig IP-adres in (bijv. 192.168.1.100)');
+                    return;
+                }
+                break;
+            default:
+                // Voor andere velden, probeer als nummer, anders als string
+                const numValue = parseFloat(value);
+                if (!isNaN(numValue)) {
+                    rig[field] = numValue;
+                } else {
+                    rig[field] = value;
+                }
+        }
+        
+        // Update UI
+        updateRigSummary();
+        saveRigsToStorage();
+        
+        // Toon feedback
+        console.log(`${rig.name} ${field} bijgewerkt naar: ${rig[field]}`);
+    }
+}
+
+function setActiveRig(rigId) {
+    activeRigId = rigId;
+    renderRigsList();
+}
+
+function updateRigSummary() {
+    const activeRigs = miningRigs.filter(rig => rig.isActive);
+    
+    const totalHashrate = activeRigs.reduce((sum, rig) => sum + rig.hashrate, 0);
+    const totalPower = activeRigs.reduce((sum, rig) => sum + rig.powerConsumption, 0);
+    
+    // Gebruik globale elektriciteitskosten uit de hoofdinstellingen
+    const globalElectricityCost = elements.electricityCost ? parseFloat(elements.electricityCost.value) || 0.25 : 0.25;
+    const dailyCost = (totalPower / 1000) * globalElectricityCost * 24;
+    
+    // Update summary elementen
+    const totalHashrateEl = document.getElementById('total-hashrate');
+    const totalPowerEl = document.getElementById('total-power');
+    const dailyCostEl = document.getElementById('daily-cost');
+    
+    if (totalHashrateEl) totalHashrateEl.textContent = `${totalHashrate.toFixed(1)} GH/s`;
+    if (totalPowerEl) totalPowerEl.textContent = `${totalPower} W`;
+    if (dailyCostEl) dailyCostEl.textContent = `€${dailyCost.toFixed(2)}`;
+}
+
+function saveRigsToStorage() {
+    localStorage.setItem('miningRigs', JSON.stringify(miningRigs));
+    localStorage.setItem('activeRigId', activeRigId);
+}
+
+function loadRigsFromStorage() {
+    const savedRigs = localStorage.getItem('miningRigs');
+    const savedActiveRigId = localStorage.getItem('activeRigId');
+    
+    if (savedRigs) {
+        miningRigs = JSON.parse(savedRigs);
+        activeRigId = savedActiveRigId;
+    } else {
+        // Maak een standaard rig als er geen zijn
+        addNewRig();
+    }
+    
+    renderRigsList();
+    updateRigSummary();
+}
+
+// Update calculateProfit functie om meerdere rigs te gebruiken
+async function calculateProfit() {
+    const allCoins = getAvailableCoins();
+    if (allCoins.length === 0) {
+        alert('Geen coins beschikbaar! Voeg eerst coins toe via de instellingen.');
+        return;
+    }
+    
+    const activeRigs = miningRigs.filter(rig => rig.isActive);
+    if (activeRigs.length === 0) {
+        alert('Voeg minimaal één actieve mining rig toe!');
+        return;
+    }
+    
+    const results = [];
+    let bestDailyProfit = 0;
+    let bestCoin = null;
+    let totalDailyCost = 0;
+    
+    // Gebruik globale elektriciteitskosten
+    const globalElectricityCost = elements.electricityCost ? parseFloat(elements.electricityCost.value) || 0.25 : 0.25;
+    
+    // Bereken totale kosten van alle actieve rigs met globale elektriciteitskosten
+    activeRigs.forEach(rig => {
+        const dailyCost = (rig.powerConsumption / 1000) * globalElectricityCost * 24;
+        totalDailyCost += dailyCost;
+    });
+    
+    // Bereken totale hashrate
+    const totalHashrate = activeRigs.reduce((sum, rig) => sum + rig.hashrate, 0);
+    
+    // Gebruik globale pool fee
+    const globalPoolFee = elements.poolFee ? parseFloat(elements.poolFee.value) || 1.0 : 1.0;
+    
+    // Groepeer rigs per coin voor specifieke berekeningen
+    const rigsByCoin = {};
+    activeRigs.forEach(rig => {
+        const coin = rig.miningCoin || 'BTC'; // Default naar BTC als geen coin is geselecteerd
+        if (!rigsByCoin[coin]) {
+            rigsByCoin[coin] = [];
+        }
+        rigsByCoin[coin].push(rig);
+    });
+    
+    for (const coin of allCoins) {
+        const networkHashrate = getEstimatedNetworkHashrate(coin.symbol);
+        
+        // Bereken hashrate voor deze specifieke coin
+        const coinRigs = rigsByCoin[coin.symbol] || [];
+        const coinHashrate = coinRigs.reduce((sum, rig) => sum + rig.hashrate, 0);
+        
+        // Als geen rigs op deze coin minen, gebruik totale hashrate
+        const effectiveHashrate = coinHashrate > 0 ? coinHashrate : totalHashrate;
+        
+        const dailyReward = calculateDailyReward(effectiveHashrate, networkHashrate, coin.symbol);
+        
+        // Pas pool fee toe op de dagelijkse beloning
+        const dailyRewardAfterPoolFee = dailyReward * (1 - globalPoolFee / 100);
+        const dailyRevenue = dailyRewardAfterPoolFee * coin.price;
+        const dailyProfit = dailyRevenue - totalDailyCost;
+        const profitMargin = (dailyProfit / dailyRevenue) * 100;
+        
+        results.push({
+            coin: coin,
+            hashrate: effectiveHashrate,
+            dailyReward: dailyReward,
+            dailyRewardAfterPoolFee: dailyRewardAfterPoolFee,
+            dailyRevenue: dailyRevenue,
+            dailyCost: totalDailyCost,
+            dailyProfit: dailyProfit,
+            profitMargin: profitMargin,
+            poolFee: globalPoolFee,
+            rigsCount: coinRigs.length
+        });
+        
+        if (dailyProfit > bestDailyProfit) {
+            bestDailyProfit = dailyProfit;
+            bestCoin = coin;
+        }
+    }
+    
+    // Sorteer op winstgevendheid
+    results.sort((a, b) => b.dailyProfit - a.dailyProfit);
+    
+    displayResults(results);
+    updateProfitDisplays(bestDailyProfit);
+    
+    // Sla mining data op
+    const poolInfo = activeRigs.length > 0 ? `${activeRigs.length} rigs actief` : 'Geen rigs';
+    await saveMiningData(totalHashrate, bestCoin, bestDailyProfit, totalDailyCost, poolInfo);
+    
+    // Update charts
+    updateCharts(results);
+}
+
+function getEstimatedNetworkHashrate(symbol) {
+    // Vereenvoudigde schattingen van network hashrate
+    const hashrates = {
+        'BTC': 500 * 1e18, // 500 EH/s
+        'BCH': 2 * 1e18,   // 2 EH/s
+        'BSV': 1 * 1e18,   // 1 EH/s
+        'BTG': 3 * 1e15,   // 3 PH/s
+        'DGB': 1 * 1e15,   // 1 PH/s
+        'LTC': 800 * 1e12, // 800 TH/s
+        'NMC': 100 * 1e12, // 100 TH/s
+        'PPC': 50 * 1e12,  // 50 TH/s
+        'XPM': 10 * 1e12,  // 10 TH/s
+        'NVC': 5 * 1e12,   // 5 TH/s
+        'EMC2': 2 * 1e12,  // 2 TH/s
+        'UNO': 1 * 1e12,   // 1 TH/s
+        'MZC': 500 * 1e9,  // 500 GH/s
+        'AUR': 200 * 1e9,  // 200 GH/s
+        'DVC': 100 * 1e9,  // 100 GH/s
+        'FRC': 50 * 1e9,   // 50 GH/s
+        'IXC': 25 * 1e9,   // 25 GH/s
+        'NXT': 10 * 1e9,   // 10 GH/s
+        'POT': 5 * 1e9,    // 5 GH/s
+        'TAG': 2 * 1e9     // 2 GH/s
+    };
+    
+    return hashrates[symbol] || 1e12; // Default 1 TH/s
+}
+
+function calculateDailyReward(hashrate, networkHashrate, symbol) {
+    // Vereenvoudigde berekening
+    const blockReward = getBlockReward(symbol);
+    const blockTime = getBlockTime(symbol);
+    const blocksPerDay = 86400 / blockTime;
+    const dailyReward = (hashrate / networkHashrate) * blockReward * blocksPerDay;
+    
+    return dailyReward;
+}
+
+function getBlockReward(symbol) {
+    const rewards = {
+        'BTC': 6.25,
+        'BCH': 6.25,
+        'BSV': 6.25,
+        'BTG': 6.25,
+        'DGB': 800,
+        'LTC': 12.5,
+        'NMC': 50,
+        'PPC': 1,
+        'XPM': 1,
+        'NVC': 1,
+        'EMC2': 1,
+        'UNO': 1,
+        'MZC': 1,
+        'AUR': 1,
+        'DVC': 1,
+        'FRC': 1,
+        'IXC': 1,
+        'NXT': 1,
+        'POT': 1,
+        'TAG': 1
+    };
+    
+    return rewards[symbol] || 1;
+}
+
+function getBlockTime(symbol) {
+    const times = {
+        'BTC': 600,    // 10 minuten
+        'BCH': 600,    // 10 minuten
+        'BSV': 600,    // 10 minuten
+        'BTG': 600,    // 10 minuten
+        'DGB': 15,     // 15 seconden
+        'LTC': 150,    // 2.5 minuten
+        'NMC': 600,    // 10 minuten
+        'PPC': 600,    // 10 minuten
+        'XPM': 60,     // 1 minuut
+        'NVC': 300,    // 5 minuten
+        'EMC2': 60,    // 1 minuut
+        'UNO': 300,    // 5 minuten
+        'MZC': 150,    // 2.5 minuten
+        'AUR': 300,    // 5 minuten
+        'DVC': 600,    // 10 minuten
+        'FRC': 600,    // 10 minuten
+        'IXC': 600,    // 10 minuten
+        'NXT': 60,     // 1 minuut
+        'POT': 60,     // 1 minuut
+        'TAG': 60      // 1 minuut
+    };
+    
+    return times[symbol] || 600;
+}
+
+function displayResults(results) {
+    if (!elements.resultsBody) return;
+    
+    elements.resultsBody.innerHTML = '';
+    
+    results.forEach(result => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>
+                <strong>${result.coin.symbol}</strong><br>
+                <small>${result.coin.name}</small>
+                ${result.rigsCount > 0 ? `<br><small style="color: #ff9800;">🪙 ${result.rigsCount} rig(s) minen deze coin</small>` : ''}
+            </td>
+            <td>€${result.coin.price.toFixed(4)}</td>
+            <td>${formatHashrate(result.hashrate)}</td>
+            <td>${result.dailyReward.toFixed(6)} ${result.coin.symbol}</td>
+            <td>${result.dailyRewardAfterPoolFee.toFixed(6)} ${result.coin.symbol}<br>
+                <small>(na ${result.poolFee}% pool fee)</small></td>
+            <td>€${result.dailyRevenue.toFixed(2)}</td>
+            <td>€${result.dailyCost.toFixed(2)}</td>
+            <td class="${result.dailyProfit >= 0 ? 'positive' : 'negative'}">
+                €${result.dailyProfit.toFixed(2)}
+            </td>
+            <td class="${result.profitMargin >= 0 ? 'positive' : 'negative'}">
+                ${result.profitMargin >= 0 ? '+' : ''}${result.profitMargin.toFixed(1)}%
+            </td>
+        `;
+        elements.resultsBody.appendChild(row);
+    });
+}
+
+function updateProfitDisplays(dailyProfit) {
+    elements.dailyProfit.textContent = `€${dailyProfit.toFixed(2)}`;
+    elements.weeklyProfit.textContent = `€${(dailyProfit * 7).toFixed(2)}`;
+    elements.monthlyProfit.textContent = `€${(dailyProfit * 30).toFixed(2)}`;
+    elements.yearlyProfit.textContent = `€${(dailyProfit * 365).toFixed(2)}`;
+    
+    // Update kleuren
+    const profitElements = [elements.dailyProfit, elements.weeklyProfit, elements.monthlyProfit, elements.yearlyProfit];
+    profitElements.forEach(el => {
+        el.className = dailyProfit >= 0 ? 'profit-display positive' : 'profit-display negative';
+    });
+}
+
+function formatHashrate(hashrate) {
+    if (hashrate >= 1e18) return `${(hashrate / 1e18).toFixed(2)} EH/s`;
+    if (hashrate >= 1e15) return `${(hashrate / 1e15).toFixed(2)} PH/s`;
+    if (hashrate >= 1e12) return `${(hashrate / 1e12).toFixed(2)} TH/s`;
+    if (hashrate >= 1e9) return `${(hashrate / 1e9).toFixed(2)} GH/s`;
+    if (hashrate >= 1e6) return `${(hashrate / 1e6).toFixed(2)} MH/s`;
+    return `${(hashrate / 1e3).toFixed(2)} KH/s`;
+}
+
+function initializeCharts() {
+    const profitCtx = document.getElementById('profit-chart').getContext('2d');
+    const roiCtx = document.getElementById('roi-chart').getContext('2d');
+
+    charts.profit = new Chart(profitCtx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Dagelijkse Winst (€)',
+                data: [],
+                backgroundColor: 'rgba(102, 126, 234, 0.8)',
+                borderColor: 'rgba(102, 126, 234, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    charts.roi = new Chart(roiCtx, {
+        type: 'doughnut',
+        data: {
+            labels: [],
+            datasets: [{
+                data: [],
+                backgroundColor: [
+                    '#38a169', '#3182ce', '#d69e2e', '#e53e3e', '#805ad5',
+                    '#dd6b20', '#319795', '#2d3748', '#4a5568', '#718096'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+}
+
+function updateCharts(results) {
+    // Update profit chart
+    charts.profit.data.labels = results.map(r => r.symbol);
+    charts.profit.data.datasets[0].data = results.map(r => r.dailyProfit);
+    charts.profit.update();
+
+    // Update ROI chart
+    charts.roi.data.labels = results.map(r => `${r.symbol} (${r.roi.toFixed(1)}%)`);
+    charts.roi.data.datasets[0].data = results.map(r => Math.abs(r.roi));
+    charts.roi.update();
+}
+
+async function saveSettings() {
+    const settings = {
+        hashrate: elements.hashrate ? elements.hashrate.value : DEMO_SETTINGS.hashrate,
+        powerConsumption: elements.powerConsumption ? elements.powerConsumption.value : DEMO_SETTINGS.powerConsumption,
+        electricityCost: elements.electricityCost ? elements.electricityCost.value : DEMO_SETTINGS.electricityCost,
+        coinmarketcapApi: elements.coinmarketcapApi ? elements.coinmarketcapApi.value : '',
+        // Pool configuratie
+        miningPool: elements.miningPool ? elements.miningPool.value : '',
+        poolApiKey: elements.poolApiKey ? elements.poolApiKey.value : '',
+        poolWorker: elements.poolWorker ? elements.poolWorker.value : '',
+        poolUrl: elements.poolUrl ? elements.poolUrl.value : ''
+    };
+    
+    await ipcRenderer.invoke('save-settings', settings);
+    alert('Instellingen opgeslagen!');
+}
+
+async function loadSettings() {
+    const settings = await ipcRenderer.invoke('load-settings');
+    
+    // Basis instellingen met null checks
+    if (elements.hashrate) {
+        if (settings.hashrate) elements.hashrate.value = settings.hashrate;
+        else elements.hashrate.value = DEMO_SETTINGS.hashrate;
+    }
+    
+    if (elements.powerConsumption) {
+        if (settings.powerConsumption) elements.powerConsumption.value = settings.powerConsumption;
+        else elements.powerConsumption.value = DEMO_SETTINGS.powerConsumption;
+    }
+    
+    if (elements.electricityCost) {
+        if (settings.electricityCost) elements.electricityCost.value = settings.electricityCost;
+        else elements.electricityCost.value = DEMO_SETTINGS.electricityCost;
+    }
+    
+    if (elements.coinmarketcapApi && settings.coinmarketcapApi !== undefined) {
+        elements.coinmarketcapApi.value = settings.coinmarketcapApi;
+    }
+    
+    // Pool configuratie
+    if (elements.miningPool && settings.miningPool) {
+        elements.miningPool.value = settings.miningPool;
+        handlePoolSelection(); // Trigger pool configuratie display
+    }
+    
+    if (elements.poolApiKey && settings.poolApiKey) {
+        elements.poolApiKey.value = settings.poolApiKey;
+    }
+    if (elements.poolWorker && settings.poolWorker) {
+        elements.poolWorker.value = settings.poolWorker;
+    }
+    if (elements.poolUrl && settings.poolUrl) {
+        elements.poolUrl.value = settings.poolUrl;
+    }
+}
+
+async function saveMiningData(hashrate, bestCoin, dailyProfit, electricityCost, poolInfo) {
+    const data = {
+        hashrate: hashrate,
+        bestCoin: bestCoin.symbol,
+        dailyProfit: dailyProfit,
+        electricityCost: electricityCost,
+        netProfit: dailyProfit - electricityCost,
+        poolData: poolInfo
+    };
+    
+    await ipcRenderer.invoke('save-mining-data', data);
+    loadMiningHistory();
+}
+
+async function loadMiningHistory() {
+    const history = await ipcRenderer.invoke('load-mining-data');
+    if (!elements.historyBody) return;
+    elements.historyBody.innerHTML = '';
+    history.forEach(entry => {
+        const row = document.createElement('tr');
+        const profit = (typeof entry.dailyProfit === 'number' && !isNaN(entry.dailyProfit)) ? entry.dailyProfit.toFixed(2) : '-';
+        const electricity = (typeof entry.electricityCost === 'number' && !isNaN(entry.electricityCost)) ? '€' + entry.electricityCost.toFixed(2) : '-';
+        row.innerHTML = `
+            <td>${entry.date || '-'}</td>
+            <td>${entry.coin || '-'}</td>
+            <td>${entry.hashrate || '-'}</td>
+            <td>€${profit}</td>
+            <td>${electricity}</td>
+            <td>${entry.poolInfo || '-'}</td>
+        `;
+        elements.historyBody.appendChild(row);
+    });
+}
+
+function exportData() {
+    const data = {
+        settings: {
+            hashrate: elements.hashrate ? elements.hashrate.value : DEMO_SETTINGS.hashrate,
+            powerConsumption: elements.powerConsumption ? elements.powerConsumption.value : DEMO_SETTINGS.powerConsumption,
+            electricityCost: elements.electricityCost ? elements.electricityCost.value : DEMO_SETTINGS.electricityCost
+        },
+        timestamp: new Date().toISOString()
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mining-data-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function clearHistory() {
+    if (confirm('Weet je zeker dat je de mining geschiedenis wilt wissen?')) {
+        await ipcRenderer.invoke('save-mining-data', []);
+        loadMiningHistory();
+    }
+}
+
+function showLoading(message) {
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const loadingText = document.getElementById('loading-text');
+    
+    if (loadingIndicator && loadingText) {
+        loadingText.textContent = message || 'Laden...';
+        loadingIndicator.style.display = 'block';
+    }
+}
+
+function hideLoading() {
+    const loadingIndicator = document.getElementById('loading-indicator');
+    
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'none';
+    }
+}
+
+function updateApiStatus(status, message) {
+    const indicator = document.getElementById('status-indicator');
+    const text = document.getElementById('status-text');
+    if (!indicator || !text) return;
+    indicator.className = 'status-indicator';
+    switch (status) {
+        case 'connected':
+            indicator.textContent = '🟢';
+            indicator.classList.add('connected');
+            break;
+        case 'fallback':
+            indicator.textContent = '🟡';
+            indicator.classList.add('fallback');
+            break;
+        case 'error':
+            indicator.textContent = '🔴';
+            indicator.classList.add('error');
+            break;
+        case 'demo':
+            indicator.textContent = '🔵';
+            indicator.classList.add('demo');
+            break;
+        default:
+            indicator.textContent = '⚪';
+    }
+    text.textContent = message;
+}
+
+async function testApiConnection() {
+    const apiKey = elements.coinmarketcapApi ? elements.coinmarketcapApi.value : '';
+    
+    if (!apiKey || apiKey === 'demo-key') {
+        updateApiStatus('demo', 'Demo mode - geen API key nodig');
+        return;
+    }
+    
+    updateApiStatus('loading', 'Testen van CoinMarketCap API...');
+    
+    try {
+        // Test CoinMarketCap API
+        const response = await axios.get(`https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest`, {
+            params: {
+                symbol: 'BTC',
+                convert: 'EUR'
+            },
+            headers: {
+                'X-CMC_PRO_API_KEY': apiKey
+            },
+            timeout: 5000
+        });
+        
+        updateApiStatus('connected', 'CoinMarketCap API werkt!');
+        setTimeout(() => {
+            updateApiStatus('connected', 'CoinMarketCap API actief');
+        }, 2000);
+        
+    } catch (error) {
+        console.log('CoinMarketCap API test gefaald, test CoinGecko...');
+        updateApiStatus('fallback', 'Testen van CoinGecko API...');
+        
+        try {
+            // Test CoinGecko API
+            await axios.get(`https://api.coingecko.com/api/v3/simple/price`, {
+                params: {
+                    ids: 'bitcoin',
+                    vs_currencies: 'eur'
+                },
+                timeout: 5000
+            });
+            
+            updateApiStatus('fallback', 'CoinGecko API werkt!');
+            setTimeout(() => {
+                updateApiStatus('fallback', 'CoinGecko API actief');
+            }, 2000);
+            
+        } catch (geckoError) {
+            updateApiStatus('error', 'Beide APIs gefaald');
+            setTimeout(() => {
+                updateApiStatus('error', 'Demo data (API fout)');
+            }, 2000);
+        }
+    }
+}
+
+// Real-time hashrate monitoring
+function startHashrateMonitoring() {
+    if (hashrateUpdateInterval) {
+        clearInterval(hashrateUpdateInterval);
+    }
+    
+    hashrateUpdateInterval = setInterval(async () => {
+        if (poolData && elements.miningPool.value) {
+            try {
+                const poolType = elements.miningPool.value;
+                const apiKey = elements.poolApiKey.value;
+                const workerName = elements.poolWorker.value;
+                const customUrl = elements.poolUrl.value;
+                
+                // Haal nieuwe pool data op
+                poolData = await miningPoolService.fetchPoolData(poolType, apiKey, workerName, customUrl);
+                
+                // Update hashrate als beschikbaar
+                if (poolData && poolData.hashRate) {
+                    const realHashrate = miningPoolService.extractHashRate(poolData.hashRate);
+                    if (realHashrate > 0) {
+                        const hashrateInGHs = realHashrate / 1e9;
+                        elements.hashrate.value = hashrateInGHs.toFixed(2);
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating hashrate:', error);
+            }
+        }
+    }, 30000); // Update elke 30 seconden
+}
+
+function stopHashrateMonitoring() {
+    if (hashrateUpdateInterval) {
+        clearInterval(hashrateUpdateInterval);
+        hashrateUpdateInterval = null;
+    }
+}
+
+// Collapsible secties functionaliteit
+function toggleSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    const toggle = document.getElementById(sectionId.replace('-section', '-toggle'));
+    
+    if (section.classList.contains('collapsed')) {
+        // Open sectie
+        section.classList.remove('collapsed');
+        toggle.classList.remove('collapsed');
+    } else {
+        // Sluit sectie
+        section.classList.add('collapsed');
+        toggle.classList.add('collapsed');
+    }
+}
+
+// Initialiseer secties (alleen API sectie open bij start)
+function initializeSections() {
+    // Sluit alle secties behalve API
+    const sections = ['pool-section', 'rig-section'];
+    sections.forEach(sectionId => {
+        const section = document.getElementById(sectionId);
+        const toggle = document.getElementById(sectionId.replace('-section', '-toggle'));
+        if (section && toggle) {
+            section.classList.add('collapsed');
+            toggle.classList.add('collapsed');
+        }
+    });
+}
+
+// Open alle secties
+function expandAllSections() {
+    const sections = ['api-section', 'pool-section', 'rig-section'];
+    sections.forEach(sectionId => {
+        const section = document.getElementById(sectionId);
+        const toggle = document.getElementById(sectionId.replace('-section', '-toggle'));
+        if (section && toggle) {
+            section.classList.remove('collapsed');
+            toggle.classList.remove('collapsed');
+        }
+    });
+}
+
+// Sluit alle secties
+function collapseAllSections() {
+    const sections = ['api-section', 'pool-section', 'rig-section'];
+    sections.forEach(sectionId => {
+        const section = document.getElementById(sectionId);
+        const toggle = document.getElementById(sectionId.replace('-section', '-toggle'));
+        if (section && toggle) {
+            section.classList.add('collapsed');
+            toggle.classList.add('collapsed');
+        }
+    });
+}
+
+// Keyboard shortcuts voor secties
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+        switch (e.key) {
+            case '1':
+                e.preventDefault();
+                toggleSection('api-section');
+                break;
+            case '2':
+                e.preventDefault();
+                toggleSection('pool-section');
+                break;
+            case '3':
+                e.preventDefault();
+                toggleSection('rig-section');
+                break;
+            case '0':
+                e.preventDefault();
+                expandAllSections();
+                break;
+            case '9':
+                e.preventDefault();
+                collapseAllSections();
+                break;
+        }
+    }
+});
+
+// API key change handler
+function handleApiKeyChange() {
+    const apiKey = elements.coinmarketcapApi ? elements.coinmarketcapApi.value : '';
+    
+    if (apiKey && apiKey.trim() && apiKey !== 'demo-key') {
+        // API key toegevoegd - laad real-time data
+        updateApiStatus('loading', 'API key gedetecteerd, laden van real-time data...');
+        loadCoinData();
+    } else {
+        // API key verwijderd - schakel terug naar demo data
+        updateApiStatus('demo', 'Demo data (geen API key)');
+        coinData = DEMO_COIN_DATA;
+        renderCoinGrid();
+    }
+}
+
+// Test IP-adres van een rig
+async function testRigIP(rigId) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (!rig || !rig.ipAddress) {
+        alert('Geen IP-adres ingesteld voor deze rig');
+        return;
+    }
+    
+    const ip = rig.ipAddress.trim();
+    if (!ip) {
+        alert('IP-adres is leeg');
+        return;
+    }
+    
+    // Verschillende API endpoints om te proberen
+    const endpoints = [
+        { url: `http://${ip}:8080/api/v1/summary`, name: 'HiveOS API' },
+        { url: `http://${ip}:3333/api/v1/summary`, name: 'T-Rex Miner API' },
+        { url: `http://${ip}:3333/summary`, name: 'T-Rex Miner (oud)' },
+        { url: `http://${ip}:3333`, name: 'T-Rex Miner Web' },
+        { url: `http://${ip}:8080`, name: 'HiveOS Web' },
+        { url: `http://${ip}:80`, name: 'HTTP Web' },
+        { url: `http://${ip}:443`, name: 'HTTPS Web' }
+    ];
+    
+    let foundEndpoint = null;
+    let errorMessage = '';
+    
+    for (const endpoint of endpoints) {
+        try {
+            console.log(`Testen van ${endpoint.name} op ${endpoint.url}`);
+            const response = await fetch(endpoint.url, {
+                method: 'GET',
+                timeout: 3000
+            });
+            
+            if (response.ok) {
+                foundEndpoint = endpoint;
+                break;
+            } else {
+                errorMessage += `${endpoint.name}: HTTP ${response.status}\n`;
+            }
+        } catch (error) {
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                // CORS of netwerk fout - probeer volgende endpoint
+                continue;
+            }
+            errorMessage += `${endpoint.name}: ${error.message}\n`;
+        }
+    }
+    
+    if (foundEndpoint) {
+        try {
+            const data = await fetch(foundEndpoint.url).then(r => r.json());
+            const hashrate = data.hashrate || data.hash_rate || data.hashRate || 'Onbekend';
+            alert(`✅ Rig ${rig.name} (${ip}) is bereikbaar!\n\nEndpoint: ${foundEndpoint.name}\nHashrate: ${hashrate}`);
+        } catch (parseError) {
+            alert(`✅ Rig ${rig.name} (${ip}) is bereikbaar!\n\nEndpoint: ${foundEndpoint.name}\n(JSON parsing gefaald)`);
+        }
+    } else {
+        // Probeer een simpele ping test
+        try {
+            const pingResponse = await fetch(`http://${ip}`, {
+                method: 'HEAD',
+                timeout: 2000
+            });
+            alert(`⚠️ Rig ${rig.name} (${ip}) is bereikbaar maar geen bekende mining API gevonden.\n\nProbeer handmatig:\n- http://${ip}:3333\n- http://${ip}:8080\n\nFouten:\n${errorMessage}`);
+        } catch (pingError) {
+            alert(`❌ Rig ${rig.name} (${ip}) is niet bereikbaar.\n\nControleer:\n- IP-adres is correct\n- Rig is aan en verbonden\n- Firewall instellingen\n\nFouten:\n${errorMessage}`);
+        }
+    }
+}
+
+// Test alle actieve rigs
+async function testAllRigs() {
+    const activeRigs = miningRigs.filter(rig => rig.isActive && rig.ipAddress && rig.ipAddress.trim());
+    
+    if (activeRigs.length === 0) {
+        alert('Geen actieve rigs met IP-adres gevonden');
+        return;
+    }
+    
+    let results = [];
+    let onlineCount = 0;
+    
+    for (const rig of activeRigs) {
+        const ip = rig.ipAddress.trim();
+        let status = '❌ Offline';
+        
+        // Probeer verschillende endpoints
+        const endpoints = [
+            `http://${ip}:8080/api/v1/summary`,
+            `http://${ip}:3333/api/v1/summary`,
+            `http://${ip}:3333/summary`,
+            `http://${ip}:3333`,
+            `http://${ip}:8080`
+        ];
+        
+        for (const endpoint of endpoints) {
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'GET',
+                    timeout: 2000
+                });
+                
+                if (response.ok) {
+                    status = '✅ Online';
+                    onlineCount++;
+                    break;
+                }
+            } catch (error) {
+                // Probeer volgende endpoint
+                continue;
+            }
+        }
+        
+        results.push(`${status} ${rig.name} (${ip})`);
+    }
+    
+    const summary = `Rig Status Test:\n\n${results.join('\n')}\n\n📊 Samenvatting: ${onlineCount}/${activeRigs.length} rigs online`;
+    alert(summary);
+}
+
+// Toggle monitoring voor een rig
+function toggleRigMonitoring(rigId) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (!rig) return;
+    
+    if (rigMonitoringIntervals[rigId]) {
+        // Stop monitoring
+        stopRigMonitoring(rigId);
+        console.log(`Monitoring gestopt voor ${rig.name}`);
+    } else {
+        // Start monitoring
+        startRigMonitoring(rigId);
+        console.log(`Monitoring gestart voor ${rig.name}`);
+    }
+    
+    // Update UI
+    renderRigsList();
+}
+
+// Start monitoring voor een specifieke rig
+async function startRigMonitoring(rigId) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (!rig || !rig.ipAddress || !rig.isActive) return;
+    
+    // Stop bestaande monitoring als die er is
+    if (rigMonitoringIntervals[rigId]) {
+        clearInterval(rigMonitoringIntervals[rigId]);
+    }
+    
+    // Start nieuwe monitoring elke 30 seconden
+    rigMonitoringIntervals[rigId] = setInterval(async () => {
+        await checkRigStatus(rigId);
+    }, 30000); // 30 seconden
+    
+    // Direct eerste check
+    await checkRigStatus(rigId);
+}
+
+// Stop monitoring voor een specifieke rig
+function stopRigMonitoring(rigId) {
+    if (rigMonitoringIntervals[rigId]) {
+        clearInterval(rigMonitoringIntervals[rigId]);
+        delete rigMonitoringIntervals[rigId];
+    }
+}
+
+// Check status van een rig via API
+async function checkRigStatus(rigId) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (!rig || !rig.ipAddress || !rig.isActive) {
+        console.log(`Rig ${rigId} niet actief of geen IP-adres`);
+        return;
+    }
+    
+    const ip = rig.ipAddress.trim();
+    if (!ip) {
+        console.log(`Rig ${rigId} heeft geen geldig IP-adres`);
+        return;
+    }
+    
+    console.log(`🔍 Checking status voor ${rig.name} (${ip}) - Type: ${rig.rigType}`);
+    
+    try {
+        // Bepaal API endpoint op basis van rig type
+        let apiUrl = '';
+        
+        if (rig.rigType === 'bitaxe' || rig.rigType === 'nerdaxe') {
+            apiUrl = `http://${ip}/api/system/info`;
+            console.log(`📡 Bitaxe/Nerdaxe endpoint: ${apiUrl}`);
+        } else if (rig.customApiEndpoint && rig.customApiEndpoint.trim()) {
+            apiUrl = rig.customApiEndpoint.startsWith('http') 
+                ? rig.customApiEndpoint 
+                : `http://${ip}${rig.customApiEndpoint.startsWith('/') ? '' : '/'}${rig.customApiEndpoint}`;
+            console.log(`📡 Custom endpoint: ${apiUrl}`);
+        } else {
+            // Probeer standaard endpoints
+            const endpoints = [
+                `http://${ip}:8080/api/v1/summary`,
+                `http://${ip}:3333/api/v1/summary`,
+                `http://${ip}:3333/summary`
+            ];
+            
+            console.log(`📡 Testing standaard endpoints voor ${rig.name}`);
+            for (const endpoint of endpoints) {
+                try {
+                    console.log(`  Testing: ${endpoint}`);
+                    const response = await fetch(endpoint, { timeout: 5000 });
+                    if (response.ok) {
+                        apiUrl = endpoint;
+                        console.log(`✅ Found working endpoint: ${apiUrl}`);
+                        break;
+                    } else {
+                        console.log(`❌ Endpoint failed: ${endpoint} - HTTP ${response.status}`);
+                    }
+                } catch (e) {
+                    console.log(`❌ Endpoint error: ${endpoint} - ${e.message}`);
+                    continue;
+                }
+            }
+        }
+        
+        if (!apiUrl) {
+            console.log(`❌ Geen werkende API endpoint gevonden voor ${rig.name}`);
+            updateRigStatus(rigId, false, 'Geen API endpoint gevonden');
+            return;
+        }
+        
+        console.log(`📡 Fetching data from: ${apiUrl}`);
+        const response = await fetch(apiUrl, { timeout: 5000 });
+        if (!response.ok) {
+            console.log(`❌ API response error: HTTP ${response.status}`);
+            updateRigStatus(rigId, false, `HTTP ${response.status}`);
+            return;
+        }
+        
+        const data = await response.json();
+        console.log(`📊 API data voor ${rig.name}:`, data);
+        
+        // Check of rig daadwerkelijk hashing
+        let isHashing = false;
+        let hashrate = 0;
+        let statusMessage = '';
+        
+        if (rig.rigType === 'bitaxe' || rig.rigType === 'nerdaxe') {
+            // Bitaxe/Nerdaxe specifieke checks
+            hashrate = data.hashRate || data.hashrate || 0;
+            rig.hashrate = hashrate > 0 ? hashrate : rig.hashrate;
+            rig._hashrateFromApi = hashrate > 0;
+            const sharesAccepted = data.sharesAccepted || 0;
+            const sharesRejected = data.sharesRejected || 0;
+            const temp = data.temp || 0;
+            const power = data.power || 0;
+            const fanrpm = data.fanrpm || 0;
+            const uptime = data.uptimeSeconds || 0;
+            
+            // Sla het stroomverbruik op in het rig object
+            rig.powerConsumption = power > 0 ? power : rig.powerConsumption;
+            rig._powerFromApi = power > 0;
+            
+            // Haal pool informatie op uit API response
+            if (data.stratumURL || data.poolUrl || data.pool || data.stratum) {
+                rig.poolUrl = data.stratumURL || data.poolUrl || data.pool?.url || data.stratum?.url || '';
+                rig.poolPort = data.stratumPort || data.poolPort || data.pool?.port || data.stratum?.port || '';
+                rig.poolUser = data.stratumUser || data.poolUser || data.pool?.user || data.stratum?.user || '';
+                rig._poolFromApi = true;
+            }
+            
+            console.log(`🔍 Bitaxe/Nerdaxe data: hashrate=${hashrate}, shares=${sharesAccepted}/${sharesRejected}, temp=${temp}, power=${power}W, fan=${fanrpm}RPM`);
+            console.log(`🏊 Pool info: ${rig.poolUrl}:${rig.poolPort} (${rig.poolUser})`);
+            
+            // Minder strikte hashing detectie - alleen hashrate check
+            isHashing = hashrate > 0;
+            statusMessage = `Hashrate: ${hashrate.toFixed(2)} GH/s | Temp: ${temp}°C | Power: ${power.toFixed(1)}W | Shares: ${sharesAccepted}/${sharesRejected}`;
+        } else {
+            // Algemene mining checks
+            hashrate = data.hashrate || data.hash_rate || data.hashRate || data.hashrate_5s || data.hashrate_1m || 0;
+            const shares = data.shares || data.accepted_shares || data.shares_accepted || 0;
+            const rejected = data.rejected_shares || data.shares_rejected || 0;
+            
+            console.log(`🔍 General mining data: hashrate=${hashrate}, shares=${shares}/${rejected}`);
+            
+            // Minder strikte hashing detectie - alleen hashrate check
+            isHashing = hashrate > 0;
+            statusMessage = `Hashrate: ${hashrate.toFixed(2)} GH/s | Shares: ${shares}/${rejected}`;
+        }
+        
+        console.log(`🎯 Hashing status voor ${rig.name}: ${isHashing ? '🟢 HASHING' : '🔴 IDLE'} (hashrate: ${hashrate})`);
+        
+        // Update rig status
+        updateRigStatus(rigId, isHashing, statusMessage);
+        
+        // Update hashrate in rig data als die significant verschilt
+        if (isHashing && Math.abs(hashrate - rig.hashrate) > 1) {
+            console.log(`📈 Updating hashrate voor ${rig.name}: ${rig.hashrate} → ${hashrate}`);
+            rig.hashrate = hashrate;
+            saveRigsToStorage();
+            updateRigSummary();
+        }
+        
+    } catch (error) {
+        console.log(`❌ Rig monitoring error voor ${rig.name}:`, error.message);
+        updateRigStatus(rigId, false, `API fout: ${error.message}`);
+    }
+}
+
+// Update rig status in UI
+function updateRigStatus(rigId, isHashing, statusMessage) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (!rig) return;
+    
+    // Update rig data
+    rig.isHashing = isHashing;
+    rig.lastStatusCheck = new Date().toISOString();
+    rig.statusMessage = statusMessage;
+    
+    // Update UI
+    const rigCard = document.querySelector(`[data-rig-id="${rigId}"]`);
+    if (rigCard) {
+        const statusIndicator = rigCard.querySelector('.rig-status-indicator');
+        const statusText = rigCard.querySelector('.rig-status-text');
+        const toggleButton = rigCard.querySelector('.btn-toggle');
+        
+        if (statusIndicator) {
+            statusIndicator.textContent = isHashing ? '🟢' : '🔴';
+            statusIndicator.className = `rig-status-indicator ${isHashing ? 'hashing' : 'idle'}`;
+        }
+        
+        if (statusText) {
+            statusText.textContent = statusMessage;
+        }
+        
+        if (toggleButton) {
+            toggleButton.textContent = isHashing ? '🟢 Hashing' : '🔴 Idle';
+            toggleButton.className = `btn-toggle ${isHashing ? 'hashing' : 'idle'}`;
+        }
+    }
+    
+    // Update summary
+    updateRigSummary();
+}
+
+// Start monitoring voor alle actieve rigs
+function startAllRigMonitoring() {
+    miningRigs.forEach(rig => {
+        if (rig.isActive && rig.ipAddress && rig.ipAddress.trim()) {
+            startRigMonitoring(rig.id);
+        }
+    });
+}
+
+// Stop monitoring voor alle rigs
+function stopAllRigMonitoring() {
+    Object.keys(rigMonitoringIntervals).forEach(rigId => {
+        stopRigMonitoring(rigId);
+    });
+}
+
+// Debug functie om monitoring status te controleren
+function debugRigMonitoring() {
+    console.log('🔍 === RIG MONITORING DEBUG ===');
+    console.log('Actieve monitoring intervals:', Object.keys(rigMonitoringIntervals));
+    console.log('Totaal aantal rigs:', miningRigs.length);
+    
+    miningRigs.forEach(rig => {
+        const isMonitoring = rigMonitoringIntervals[rig.id] ? '✅' : '❌';
+        const isActive = rig.isActive ? '✅' : '❌';
+        const hasIP = rig.ipAddress && rig.ipAddress.trim() ? '✅' : '❌';
+        const isHashing = rig.isHashing ? '🟢' : '🔴';
+        
+        console.log(`${rig.name}:`);
+        console.log(`  - Actief: ${isActive} ${rig.isActive}`);
+        console.log(`  - IP-adres: ${hasIP} ${rig.ipAddress || 'Geen IP'}`);
+        console.log(`  - Monitoring: ${isMonitoring} ${rigMonitoringIntervals[rig.id] ? 'Actief' : 'Inactief'}`);
+        console.log(`  - Hashing: ${isHashing} ${rig.isHashing ? 'Ja' : 'Nee'}`);
+        console.log(`  - Status: ${rig.statusMessage || 'Geen status'}`);
+        console.log(`  - Type: ${rig.rigType}`);
+        console.log(`  - API Endpoint: ${rig.customApiEndpoint || 'Standaard'}`);
+    });
+    
+    console.log('=== EINDE DEBUG ===');
+}
+
+// Detecteer rig type op basis van API response
+function detectRigType(data) {
+    // Detecteer rig type op basis van API response
+    if (data.hashRate !== undefined && data.power !== undefined) {
+        return 'bitaxe'; // Bitaxe/Nerdaxe hebben deze velden
+    }
+    if (data.hashrate !== undefined && data.shares !== undefined) {
+        return 'asic'; // ASIC miners hebben meestal deze velden
+    }
+    return 'custom'; // Default naar custom
+}
+
+// Coins Management Functions
+function renderCoinsList() {
+    const coinsList = document.getElementById('coins-list');
+    if (!coinsList) return;
+    
+    coinsList.innerHTML = '';
+    
+    // Combineer API coins en handmatige coins
+    const allCoins = [...coinData, ...manualCoins];
+    
+    allCoins.forEach(coin => {
+        const coinCard = document.createElement('div');
+        coinCard.className = 'coin-card';
+        coinCard.innerHTML = `
+            <div class="coin-info">
+                <div class="coin-header">
+                    <h5>${coin.symbol}</h5>
+                    <span class="coin-name">${coin.name}</span>
+                    ${coin._manual ? '<span class="manual-badge">Handmatig</span>' : '<span class="api-badge">API</span>'}
+                </div>
+                <div class="coin-details">
+                    <div class="coin-price">€${coin.price.toFixed(4)}</div>
+                    <div class="coin-market-cap">€${formatNumber(coin.marketCap)}</div>
+                    <div class="coin-change ${coin.change24h >= 0 ? 'positive' : 'negative'}">
+                        ${coin.change24h >= 0 ? '+' : ''}${coin.change24h.toFixed(2)}%
+                    </div>
+                </div>
+            </div>
+            <div class="coin-actions">
+                <button class="btn-edit" onclick="editCoin('${coin.symbol}')" title="Bewerken">✏️</button>
+                ${coin._manual ? `<button class="btn-delete" onclick="deleteCoin('${coin.symbol}')" title="Verwijderen">🗑️</button>` : ''}
+            </div>
+        `;
+        coinsList.appendChild(coinCard);
+    });
+    
+    updateCoinSummary();
+}
+
+function updateCoinSummary() {
+    const totalCoins = document.getElementById('total-coins');
+    const apiCoins = document.getElementById('api-coins');
+    const manualCoins = document.getElementById('manual-coins');
+    
+    if (totalCoins) totalCoins.textContent = coinData.length + manualCoins.length;
+    if (apiCoins) apiCoins.textContent = coinData.length;
+    if (manualCoins) manualCoins.textContent = manualCoins.length;
+}
+
+function showAddCoinForm() {
+    const form = `
+        <div class="modal-overlay" id="add-coin-modal">
+            <div class="modal-content">
+                <h3>➕ Nieuwe Coin Toevoegen</h3>
+                <form id="add-coin-form">
+                    <div class="form-group">
+                        <label for="coin-symbol">Symbol:</label>
+                        <input type="text" id="coin-symbol" required placeholder="BTC">
+                    </div>
+                    <div class="form-group">
+                        <label for="coin-name">Naam:</label>
+                        <input type="text" id="coin-name" required placeholder="Bitcoin">
+                    </div>
+                    <div class="form-group">
+                        <label for="coin-price">Prijs (€):</label>
+                        <input type="number" id="coin-price" step="0.0001" required placeholder="45000.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="coin-market-cap">Market Cap (€):</label>
+                        <input type="number" id="coin-market-cap" placeholder="850000000000">
+                    </div>
+                    <div class="form-group">
+                        <label for="coin-change">24h Verandering (%):</label>
+                        <input type="number" id="coin-change" step="0.01" placeholder="2.5">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" onclick="closeAddCoinForm()" class="btn-secondary">Annuleren</button>
+                        <button type="submit" class="btn-primary">Toevoegen</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', form);
+    
+    // Event listener voor form submission
+    document.getElementById('add-coin-form').addEventListener('submit', handleAddCoin);
+}
+
+function closeAddCoinForm() {
+    const modal = document.getElementById('add-coin-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function handleAddCoin(event) {
+    event.preventDefault();
+    
+    const symbol = document.getElementById('coin-symbol').value.toUpperCase();
+    const name = document.getElementById('coin-name').value;
+    const price = parseFloat(document.getElementById('coin-price').value);
+    const marketCap = parseFloat(document.getElementById('coin-market-cap').value) || 0;
+    const change24h = parseFloat(document.getElementById('coin-change').value) || 0;
+    
+    // Check of coin al bestaat
+    if (coinData.find(c => c.symbol === symbol) || manualCoins.find(c => c.symbol === symbol)) {
+        alert('Deze coin bestaat al!');
+        return;
+    }
+    
+    const newCoin = {
+        symbol: symbol,
+        name: name,
+        price: price,
+        marketCap: marketCap,
+        volume24h: 0,
+        change24h: change24h,
+        _manual: true // Markeer als handmatig toegevoegd
+    };
+    
+    manualCoins.push(newCoin);
+    saveManualCoins();
+    renderCoinsList();
+    closeAddCoinForm();
+    
+    console.log(`Handmatige coin toegevoegd: ${symbol}`);
+}
+
+function editCoin(symbol) {
+    const coin = [...coinData, ...manualCoins].find(c => c.symbol === symbol);
+    if (!coin) return;
+    
+    const form = `
+        <div class="modal-overlay" id="edit-coin-modal">
+            <div class="modal-content">
+                <h3>✏️ Coin Bewerken: ${coin.symbol}</h3>
+                <form id="edit-coin-form">
+                    <div class="form-group">
+                        <label for="edit-coin-name">Naam:</label>
+                        <input type="text" id="edit-coin-name" value="${coin.name}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-coin-price">Prijs (€):</label>
+                        <input type="number" id="edit-coin-price" step="0.0001" value="${coin.price}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-coin-market-cap">Market Cap (€):</label>
+                        <input type="number" id="edit-coin-market-cap" value="${coin.marketCap}">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-coin-change">24h Verandering (%):</label>
+                        <input type="number" id="edit-coin-change" step="0.01" value="${coin.change24h}">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" onclick="closeEditCoinForm()" class="btn-secondary">Annuleren</button>
+                        <button type="submit" class="btn-primary">Opslaan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', form);
+    
+    // Event listener voor form submission
+    document.getElementById('edit-coin-form').addEventListener('submit', (e) => handleEditCoin(e, symbol));
+}
+
+function closeEditCoinForm() {
+    const modal = document.getElementById('edit-coin-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function handleEditCoin(event, symbol) {
+    event.preventDefault();
+    
+    const name = document.getElementById('edit-coin-name').value;
+    const price = parseFloat(document.getElementById('edit-coin-price').value);
+    const marketCap = parseFloat(document.getElementById('edit-coin-market-cap').value) || 0;
+    const change24h = parseFloat(document.getElementById('edit-coin-change').value) || 0;
+    
+    // Update coin in de juiste array
+    let coin = coinData.find(c => c.symbol === symbol);
+    if (coin) {
+        // API coin - update alleen prijs en market cap
+        coin.price = price;
+        coin.marketCap = marketCap;
+        coin.change24h = change24h;
+    } else {
+        coin = manualCoins.find(c => c.symbol === symbol);
+        if (coin) {
+            // Handmatige coin - update alles
+            coin.name = name;
+            coin.price = price;
+            coin.marketCap = marketCap;
+            coin.change24h = change24h;
+            saveManualCoins();
+        }
+    }
+    
+    renderCoinsList();
+    closeEditCoinForm();
+    
+    console.log(`Coin bijgewerkt: ${symbol}`);
+}
+
+function deleteCoin(symbol) {
+    if (!confirm(`Weet je zeker dat je ${symbol} wilt verwijderen?`)) {
+        return;
+    }
+    
+    const index = manualCoins.findIndex(c => c.symbol === symbol);
+    if (index !== -1) {
+        manualCoins.splice(index, 1);
+        saveManualCoins();
+        renderCoinsList();
+        console.log(`Handmatige coin verwijderd: ${symbol}`);
+    }
+}
+
+function refreshCoinData() {
+    loadCoinData().then(() => {
+        renderCoinsList();
+        console.log('Coin data vernieuwd');
+    });
+}
+
+function saveManualCoins() {
+    localStorage.setItem('manualCoins', JSON.stringify(manualCoins));
+}
+
+function loadManualCoins() {
+    const saved = localStorage.getItem('manualCoins');
+    if (saved) {
+        manualCoins = JSON.parse(saved);
+    }
+}
+
+function formatNumber(num) {
+    if (num >= 1e9) {
+        return (num / 1e9).toFixed(1) + 'B';
+    } else if (num >= 1e6) {
+        return (num / 1e6).toFixed(1) + 'M';
+    } else if (num >= 1e3) {
+        return (num / 1e3).toFixed(1) + 'K';
+    }
+    return num.toString();
+}
+
+function getAvailableCoins() {
+    // Combineer API coins en handmatige coins
+    return [...coinData, ...manualCoins];
+}
+
+// ... [rest of the original file content remains unchanged]

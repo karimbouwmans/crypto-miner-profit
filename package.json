@@ -1,0 +1,50 @@
+{
+  "name": "crypto-miner-profit-calculator",
+  "version": "1.0.0",
+  "description": "Desktop app voor SHA-256 mining profit berekeningen",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "node build.js",
+    "dist": "electron-builder --publish=never",
+    "pack": "electron-builder --dir"
+  },
+  "keywords": ["crypto", "mining", "profit", "calculator", "sha256"],
+  "author": "Crypto Miner",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "chart.js": "^4.4.0",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "date-fns": "^2.30.0",
+    "electron-store": "^8.1.0"
+  },
+  "build": {
+    "appId": "com.cryptominer.profitcalculator",
+    "productName": "Crypto Miner Profit Calculator",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/**/*",
+      "!dist/**/*",
+      "!build.js"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.svg"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+} 
