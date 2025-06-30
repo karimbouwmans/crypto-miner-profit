@@ -2535,9 +2535,10 @@ function setupDashboardChart() {
                     },
                     ticks: {
                         color: '#a0aec0',
-                        autoSkip: true,
+                        autoSkip: chartRange !== 'day' ? true : false,
                         maxRotation: 0,
-                        minRotation: 0
+                        minRotation: 0,
+                        stepSize: chartRange === 'day' ? 1 : undefined
                     },
                     grid: { color: '#2d3748' }
                 },
