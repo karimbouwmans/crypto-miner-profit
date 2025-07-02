@@ -1905,6 +1905,11 @@ h2 {
 
 .stratum-url {
     color: #2b6cb0;
+    max-width: 100%;
+    white-space: normal;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    display: block;
 }
 
 .stratum-port {

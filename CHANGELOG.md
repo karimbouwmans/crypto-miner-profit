@@ -18,11 +18,17 @@ en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 - **editRig() Functie**: Uitgebreid om zowel naam als IP adres te bewerken
 - **Rig Interface**: Bewerk knop heeft nu tooltip die aangeeft dat zowel naam als IP bewerkt kunnen worden
 
+### Opgelost
+- **Elektriciteitskosten Berekening**: Fix voor het probleem waarbij 0 euro elektriciteitskosten niet correct werden verwerkt
+- **Dagelijkse Kosten Berekening**: Nu wordt 0 euro correct berekend in plaats van fallback naar 0.25 euro
+- **Directe kleurweergave**: De geselecteerde kleur van een mining rig wordt nu direct visueel weergegeven na het kiezen van een nieuwe kleur
+
 ### Technische Details
 - IP adres validatie met regex pattern voor geldige IPv4 adressen
 - showPrompt() functie gebruikt voor gebruiksvriendelijke invoer
 - Annuleren mogelijk bij elke stap van rig toevoeging/bewerking
 - Standaard IP adres suggestie (192.168.1.100) voor eenvoudige invoer
+- Verbeterde parseFloat logica met isNaN() check in plaats van || operator
 
 ## [2.0.0] - 2024-12-19
 

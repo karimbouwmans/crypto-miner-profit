@@ -952,6 +952,11 @@ function updateRigField(rigId, field, value) {
         updateRigSummary();
         saveRigsToStorage();
         
+        // Update rig lijst als het een visueel veld is (zoals kleur of naam)
+        if (field === 'color' || field === 'name') {
+            renderRigsList();
+        }
+        
         // Toon feedback
         console.log(`${rig.name} ${field} bijgewerkt naar: ${rig[field]}`);
     }
@@ -969,7 +974,7 @@ function updateRigSummary() {
     const totalPower = activeRigs.reduce((sum, rig) => sum + rig.powerConsumption, 0);
     
     // Gebruik globale elektriciteitskosten uit de hoofdinstellingen
-    const globalElectricityCost = elements.electricityCost ? parseFloat(elements.electricityCost.value) || 0.25 : 0.25;
+    const globalElectricityCost = elements.electricityCost ? (isNaN(parseFloat(elements.electricityCost.value)) ? 0.25 : parseFloat(elements.electricityCost.value)) : 0.25;
     const dailyCost = (totalPower / 1000) * globalElectricityCost * 24;
     
     // Update summary elementen
@@ -1023,7 +1028,7 @@ async function calculateProfit() {
     let totalDailyCost = 0;
     
     // Gebruik globale elektriciteitskosten
-    const globalElectricityCost = elements.electricityCost ? parseFloat(elements.electricityCost.value) || 0.25 : 0.25;
+    const globalElectricityCost = elements.electricityCost ? (isNaN(parseFloat(elements.electricityCost.value)) ? 0.25 : parseFloat(elements.electricityCost.value)) : 0.25;
     
     // Bereken totale kosten van alle actieve rigs met globale elektriciteitskosten
     activeRigs.forEach(rig => {
@@ -1945,11 +1950,23 @@ async function checkRigStatus(rigId) {
             rig._powerFromApi = power > 0;
             
             // Haal pool informatie op uit API response
-            if (data.stratumURL || data.poolUrl || data.pool || data.stratum) {
-                rig.poolUrl = data.stratumURL || data.poolUrl || data.pool?.url || data.stratum?.url || '';
-                rig.poolPort = data.stratumPort || data.poolPort || data.pool?.port || data.stratum?.port || '';
-                rig.poolUser = data.stratumUser || data.poolUser || data.pool?.user || data.stratum?.user || '';
-                rig._poolFromApi = true;
+            if (rig.rigType === 'nerdaxe') {
+                rig.poolUrl = data.stratumURL || '';
+                rig.poolPort = data.stratumPort || '';
+                rig.poolUser = data.stratumUser || '';
+                rig._poolFromApi = !!rig.poolUrl;
+            } else if (rig.rigType === 'bitaxe') {
+                rig.poolUrl = data.stratumURLUSED || data.stratumURL1 || '';
+                rig.poolUser = data.stratumUserUSED || data.stratumUser1 || '';
+                // Probeer poort uit URL te halen
+                let port = '';
+                if (rig.poolUrl && rig.poolUrl.includes(':')) {
+                    const match = rig.poolUrl.match(/:(\d+)(?!.*:\d+)/);
+                    if (match) port = match[1];
+                }
+                rig.poolPort = port;
+                rig._poolFromApi = !!rig.poolUrl;
+                // Optioneel: rig.poolPassword = data.stratumPassword1 || '';
             }
             
             console.log(`🔍 Bitaxe/Nerdaxe data: hashrate=${hashrate}, shares=${sharesAccepted}/${sharesRejected}, temp=${temp}, power=${power}W, fan=${fanrpm}RPM`);
@@ -3709,6 +3726,11 @@ function updateRigField(rigId, field, value) {
         // Update UI
         updateRigSummary();
         saveRigsToStorage();
+        
+        // Update rig lijst als het een visueel veld is (zoals kleur of naam)
+        if (field === 'color' || field === 'name') {
+            renderRigsList();
+        }
         
         // Toon feedback
         console.log(`${rig.name} ${field} bijgewerkt naar: ${rig[field]}`);
