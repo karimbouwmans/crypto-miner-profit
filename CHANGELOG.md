@@ -5,6 +5,111 @@ Alle belangrijke wijzigingen in dit project worden gedocumenteerd in dit bestand
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.0.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [2.1.0] - 2024-12-19
+
+### Toegevoegd
+- **Verbeterde Rig Toevoeging**: Nieuwe rigs vragen nu om naam en IP adres bij aanmaken
+- **IP Adres Validatie**: Automatische validatie van IP adressen bij invoer
+- **Uitgebreide Rig Bewerking**: Bewerk functie kan nu zowel naam als IP adres wijzigen
+- **Gebruiksvriendelijke Prompts**: Duidelijke prompts met standaardwaarden voor eenvoudige invoer
+
+### Gewijzigd
+- **addNewRig() Functie**: Nu async functie die eerst naam en IP adres vraagt
+- **editRig() Functie**: Uitgebreid om zowel naam als IP adres te bewerken
+- **Rig Interface**: Bewerk knop heeft nu tooltip die aangeeft dat zowel naam als IP bewerkt kunnen worden
+
+### Technische Details
+- IP adres validatie met regex pattern voor geldige IPv4 adressen
+- showPrompt() functie gebruikt voor gebruiksvriendelijke invoer
+- Annuleren mogelijk bij elke stap van rig toevoeging/bewerking
+- Standaard IP adres suggestie (192.168.1.100) voor eenvoudige invoer
+
+## [2.0.0] - 2024-12-19
+
+### Toegevoegd
+- **Collapsible Rigs**: Rigs zijn nu standaard ingeklapt voor betere overzichtelijkheid
+- **Expand/Collapse Functionaliteit**: Klik op rig header om velden uit/in te klappen
+- **Visual Feedback**: Expand icon (▶️/🔽) toont status van rig expansie
+- **Smooth Transitions**: Vloeiende animaties bij in/uitklappen van rigs
+- **Hover Effects**: Visuele feedback bij hover over rig headers
+
+### Gewijzigd
+- **Rig Interface**: Rigs zijn nu compact en uitklapbaar voor betere gebruikerservaring
+- **Rig Header**: Klikbare header met expand icon voor eenvoudige navigatie
+- **Rig Fields**: Standaard verborgen, alleen zichtbaar bij uitklappen
+
+### Technische Details
+- `toggleRigExpansion()` functie voor in/uitklappen van rig velden
+- CSS transitions en transforms voor smooth animaties
+- Expand icon rotatie bij uitklappen
+- Hover effects voor betere interactiviteit
+
+## [1.9.0] - 2024-12-19
+
+### Toegevoegd
+- **Verwijder Optie voor Pool Configuraties**: "D" + nummer om configuraties te verwijderen
+- **Bevestigingsdialoog bij Verwijderen**: Confirmation dialog voor veilige verwijdering
+- **Directe Bewerk/Verwijder Opties**: Simpelere interface met directe acties
+- **Per-Rig Configuratie Verwijdering**: Verwijder optie werkt zowel in algemene als per-rig lijsten
+
+### Gewijzigd
+- **Pool Configuratie Interface**: Vereenvoudigde interface met directe bewerk/verwijder opties
+- **Configuratie Beheer Workflow**: Verbeterde workflow voor het beheren van pool instellingen
+
+## [1.8.0] - 2024-12-19
+
+### Toegevoegd
+- **Pool Overzicht Sectie**: Nieuwe sectie in het Mining Pool paneel voor het tonen van pool data van alle actieve miners
+- **Automatische Pool Data Opslag**: Data die we al ophalen van miners wordt nu automatisch opgeslagen in localStorage per rig
+- **Pool Data Persistentie**: Data blijft behouden bij pool wissels - elke rig slaat data op per pool type
+- **Multi-Pool Geschiedenis**: Toont data van alle pools die elke rig heeft gebruikt, gesorteerd op datum
+- **Huidige vs Historische Data**: Duidelijk onderscheid tussen huidige pool data en historische data
+- **Vereenvoudigd Pool Data Overzicht**: Toont alleen shares, geweigerde shares en stratum configuratie per miner
+- **Stratum Informatie**: Toont stratum URL, poort en user van elke miner in het pool overzicht
+- **Pool Wachtwoord Functionaliteit**: Handmatig wachtwoord invoeren met oogje om te tonen/verbergen (standaard verborgen)
+- **Wachtwoord Persistentie**: Pool wachtwoord wordt automatisch opgeslagen en geladen
+- **Pool Configuratie Beheer**: Opslaan, laden en beheren van pool configuraties met wachtwoord
+- **Pool Configuratie Opslag**: Sla pool instellingen op met naam, API key, worker name, URL en wachtwoord
+- **Pool Configuratie Laden**: Laad opgeslagen pool configuraties terug in de interface
+- **Real-time Status Indicatoren**: Kleurgecodeerde status indicators (groen voor hashing, rood voor idle, grijs voor offline)
+- **Timestamp Tracking**: Toont wanneer de laatste pool data is opgehaald per miner
+- **Refresh Functionaliteit**: Knop om handmatig alle pool data opnieuw op te halen
+- **Responsive Design**: Pool overzicht werkt goed op mobiele apparaten
+
+### Gewijzigd
+- **Vereenvoudigd Pool Overzicht**: Verwijderd hashrate, verwachte hashrate, efficiëntie, beste difficulty en difficulty sinds boot uit het pool overzicht
+- **Focussed Data**: Pool overzicht toont nu alleen relevante pool-specifieke informatie (shares, stratum configuratie)
+- **Geoptimaliseerde Opslag**: Minder data wordt opgeslagen in localStorage voor betere performance
+- **Wachtwoord Beveiliging**: Pool configuraties kunnen nu beveiligd worden met een wachtwoord
+- **Data Structuur**: Pool data wordt nu opgeslagen per rig + pool combinatie voor betere organisatie
+- **Pool Configuratie Workflow**: Verbeterde workflow voor het beheren van pool instellingen
+
+### Technische Details
+- Nieuwe globale variabele `rigPoolData` voor het opslaan van pool data per rig + pool combinatie
+- `saveRigPoolData()` en `loadRigPoolData()` functies voor persistentie met backward compatibility
+- `updateRigPoolData()` functie voor het bijwerken van pool data (vereenvoudigd)
+- `renderPoolOverview()` functie voor het tonen van het overzicht met multi-pool geschiedenis
+- `refreshPoolOverview()` functie voor handmatige refresh
+- `togglePassword()`, `savePoolPassword()`, `loadPoolPassword()` functies voor wachtwoord beheer
+- `saveCurrentPoolConfig()`, `loadPoolConfigurations()`, `loadPoolConfig()`, `deletePoolConfig()` functies voor pool configuratie beheer
+- `getPoolDisplayName()` helper functie voor pool naam weergave
+- Aangepaste `checkRigStatus()` en `fetchAllRigStats()` functies om alleen relevante pool data op te slaan
+- Aangepaste `fetchRigApiData()` functie om stratum informatie op te halen
+- Nieuwe CSS styling voor pool overzicht, stratum informatie, wachtwoord functionaliteit, pool actions en multi-pool geschiedenis
+
+### UI Verbeteringen
+- Moderne kaart-gebaseerde layout voor pool data
+- Multi-pool geschiedenis met huidige en historische secties
+- Huidige pool data gemarkeerd met groene achtergrond en "Huidig" badge
+- Historische pool data met grijze achtergrond en verminderde opacity
+- Stratum informatie sectie met gekleurde labels (URL, poort, user)
+- Wachtwoord input met oogje toggle (👁️/🙈) voor tonen/verbergen
+- Pool configuratie actie knoppen (Opslaan, Bekijk Configuraties)
+- Hover effecten en smooth transitions
+- Duidelijke labels voor shares en stratum configuratie
+- Empty state wanneer geen actieve miners zijn
+- Loading state tijdens het ophalen van data
+
 ## [1.0.0] - 2024-06-30
 
 ### Toegevoegd
@@ -294,96 +399,252 @@ Voor het toevoegen van wijzigingen aan deze changelog:
 ### Bronnen
 - [Bitaxe API Documentatie](https://osmu.wiki/bitaxe/api/) - API endpoints en data formaten 
 
-## [1.8.0] - 2024-12-19
-### Toegevoegd
-- Globale instellingen sectie in rig-panel voor elektriciteitskosten en pool fee
-- Automatische update van rig summary wanneer elektriciteitskosten veranderen
-- Pool fee wordt nu correct toegepast op dagelijkse beloningen
-- Nieuwe kolom in resultaten tabel voor "Na Pool Fee" beloningen
-
-### Gewijzigd
-- Elektriciteitskosten en pool fee verwijderd uit individuele rig configuratie
-- calculateProfit functie gebruikt nu globale elektriciteitskosten en pool fee
-- updateRigSummary functie gebruikt globale elektriciteitskosten uit instellingen
-- Event listeners toegevoegd voor globale instellingen wijzigingen
-
-### Verwijderd
-- Individuele elektriciteitskosten velden uit rig configuratie
-- Individuele pool fee velden uit rig configuratie
-- Gemiddelde pool fee berekening uit calculateProfit functie
-
 ## [1.7.0] - 2024-12-19
 
-## [1.9.0] - 2024-12-19
 ### Toegevoegd
-- Nieuwe "Coins Beheer" sectie in instellingen
-- Handmatig toevoegen van custom coins met volledige configuratie
-- Bewerken van bestaande coins (API en handmatige)
-- Verwijderen van handmatig toegevoegde coins
-- Visuele badges voor API coins vs handmatige coins
-- Coin overzicht met totalen (API, handmatig, totaal)
-- Modal formulieren voor toevoegen/bewerken van coins
-- Automatische opslag van handmatige coins in localStorage
+- **Multi-Rig Dashboard Grafiek**: Grafiek toont nu per hashing rig een eigen lijn met kleuren
+- **Rig Legend**: Legend links van de grafiek met rig-namen en kleuren
+- **Tijdsselectie**: Knoppen voor dag/week/maand/jaar met dynamische x-as labels
+- **Lineair/Logaritmisch Toggle**: Schakelaar tussen lineaire en logaritmische schaal
+- **Persistente Rig Data**: Hashrate geschiedenis wordt opgeslagen per rig in localStorage
+- **Automatische Refresh**: Dashboard update automatisch elke 30 seconden
+- **Handmatige Refresh**: Knop om dashboard handmatig te verversen
+
+### Technische Details
+- Nieuwe globale variabele `rigHashrateHistory` voor per-rig geschiedenis
+- `saveRigHashrateHistory()` en `loadRigHashrateHistory()` functies
+- `updateDashboardChartMulti()` functie voor multi-rig grafiek
+- `updateDashboardLegend()` functie voor rig legend
+- Chart.js time scale met dynamische displayFormats
+- X-as labels: dag (per uur), week/maand (per dag), jaar (per week)
+
+### UI Verbeveringen
+- Moderne, lichte styling voor tijdsselectie knoppen
+- Responsive legend layout
+- Smooth animaties bij grafiek updates
+- Duidelijke tooltips met datum/tijd informatie
+
+## [1.6.0] - 2024-06-30
+
+### Toegevoegd
+- **Mining Rig Management**: Volledig systeem voor het beheren van mining rigs
+- **Rig Types**: Ondersteuning voor Bitaxe, Nerdaxe, ASIC, GPU en Custom miners
+- **Real-time Monitoring**: Automatische status monitoring van alle actieve rigs
+- **Rig Configuratie**: IP-adres, API endpoint, naam, type en algoritme instellingen
+- **Rig Status Tracking**: Hashing/idle status met real-time updates
+- **Rig Testing**: Test functionaliteit voor individuele rigs en alle rigs tegelijk
+- **Persistente Rig Data**: Rigs worden opgeslagen in localStorage
+- **Modale popup voor gebruikersinvoer ter vervanging van prompt()
+- **Nieuwe showPrompt() functie voor Electron-compatibele input dialogen
+- **CSS styling voor prompt modale popup**
+
+### Technische Details
+- Nieuwe globale variabele `miningRigs` array
+- `addNewRig()`, `deleteRig()`, `toggleRig()`, `editRig()` functies
+- `startRigMonitoring()`, `stopRigMonitoring()`, `checkRigStatus()` functies
+- `saveRigsToStorage()`, `loadRigsFromStorage()` functies
+- `fetchRigApiData()` functie voor API calls naar miners
+- `renderRigsList()` functie voor UI updates
+
+### UI Verbeteringen
+- Moderne rig kaarten met status indicators
+- Collapsible rig configuratie velden
+- Real-time status updates met kleurgecodeerde indicators
+- Responsive design voor mobiele apparaten
+- Smooth animaties en hover effecten
 
 ### Gewijzigd
-- renderCoinGrid toont nu zowel API als handmatige coins
-- Coin selectie werkt voor alle coin types
-- Verbeterde UI voor coin cards met badges en acties
-- CSS styling voor coins beheer en modal formulieren
+- Alle prompt() calls vervangen door showPrompt() modale popup
+- editRig() functie aangepast voor async/await
+- saveCurrentPoolConfig() functie aangepast voor async/await
+- loadPoolConfigurations() functie aangepast voor async/await
+- loadPoolConfigForRig() functie aangepast voor async/await
 
-### Functionaliteit
-- **Handmatige coins**: Voeg custom coins toe met symbol, naam, prijs, market cap en 24h verandering
-- **API coins**: Automatisch geladen via CoinMarketCap/CoinGecko
-- **Bewerken**: Update prijzen en details van bestaande coins
-- **Verwijderen**: Alleen handmatige coins kunnen worden verwijderd
-- **Persistentie**: Handmatige coins worden opgeslagen en herladen
+### Opgelost
+- prompt() error in Electron renderer context
+- Wachtwoord velden niet meer bewerkbaar na foutmeldingen
+- UI crashes na prompt() errors
 
-## [1.8.0] - 2024-12-19
+## [1.5.0] - 2024-06-30
 
-## [2.0.0] - 2024-12-19
 ### Toegevoegd
-- Mining coin selectie per rig in de instellingen
-- Visuele badges voor rig type, algoritme en mining coin
-- Specifieke profit berekeningen per coin op basis van toegewezen rigs
-- Aantal rigs per coin wordt getoond in resultaten
-- Default mining coin (BTC) voor nieuwe rigs
-- Verbeterde rig status display met coin informatie
+- **Coins Beheer**: Volledig systeem voor het beheren van coins
+- **Handmatige Coin Toevoeging**: Mogelijkheid om coins handmatig toe te voegen
+- **Coin Bewerking**: Edit functionaliteit voor bestaande coins
+- **Coin Verwijdering**: Delete functionaliteit voor coins
+- **Persistente Coin Data**: Handmatige coins worden opgeslagen in localStorage
+- **Coin Samenvatting**: Overzicht van beschikbare coins
+
+### Technische Details
+- Nieuwe globale variabele `manualCoins` array
+- `showAddCoinForm()`, `closeAddCoinForm()`, `handleAddCoin()` functies
+- `editCoin()`, `closeEditCoinForm()`, `handleEditCoin()` functies
+- `deleteCoin()` functie
+- `saveManualCoins()`, `loadManualCoins()` functies
+- `renderCoinsList()` functie voor UI updates
+
+### UI Verbeteringen
+- Moderne coin kaarten met prijs en market cap informatie
+- Modal dialogen voor coin toevoegen/bewerken
+- Responsive grid layout voor coins
+- Smooth animaties en hover effecten
+- Duidelijke badges voor handmatige vs API coins
 
 ### Gewijzigd
-- calculateProfit functie gebruikt nu specifieke hashrate per coin
-- Rig cards tonen nu type, algoritme en mining coin badges
-- Resultaten tabel toont hoeveel rigs op elke coin minen
-- Profit berekeningen zijn accurater door coin-specifieke hashrate
+- savePoolConfigForRig gebruikt nu pool-specifiek wachtwoord veld
+- loadPoolConfigForRigFromSelection laadt wachtwoord in juiste pool veld
+- Pool configuratie sectie bevat nu wachtwoord input per pool
+- Verbeterde CSS styling voor pool configuratie sectie
 
-### Functionaliteit
-- **Per-rig coin selectie**: Elke rig kan een specifieke coin toewijzen
-- **Accurate berekeningen**: Profit wordt berekend op basis van rigs die daadwerkelijk op die coin minen
-- **Visuele feedback**: Duidelijke badges en indicators voor rig configuratie
-- **Flexibiliteit**: Rigs zonder toegewezen coin gebruiken totale hashrate
+### Opgelost
+- Wachtwoord kon niet per pool worden toegevoegd
+- Pool configuratie gebruikte algemeen wachtwoord veld
 
-## [1.9.0] - 2024-12-19 
+## [1.4.0] - 2024-06-30
 
-## [2.1.0] - 2024-12-19
 ### Toegevoegd
-- Pool informatie ophalen via API van mining rigs
-- Pool URL, Port, User en Password velden in rig configuratie
-- Automatische pool configuratie detectie voor Bitaxe/Nerdaxe
-- Visuele pool badge in rig status display
-- Pool informatie sectie met "Live" indicator
-- Readonly velden voor API-opgehaalde pool data
-- Placeholder waarden voor unmineable configuratie
+- Pool configuratie knoppen per pool onder stratum configuratie
+- Individuele pool configuratie beheer per rig en pool type
+- Nieuwe functies: savePoolConfigForRig, loadPoolConfigForRig, loadPoolConfigForRigFromSelection
+- Kleine knoppen styling voor pool item acties
+- Scheiding van pool configuratie per pool in plaats van algemene sectie
+
+### Verwijderd
+- Algemene pool configuratie acties sectie uit hoofdinterface
+- Centrale pool configuratie beheer knoppen
 
 ### Gewijzigd
-- checkRigStatus functie haalt nu pool informatie op uit API response
-- Rig UI toont pool configuratie met live indicators
-- Rig status badges tonen nu ook pool informatie
-- Verbeterde logging van pool configuratie
+- Pool configuratie workflow nu per pool in plaats van algemeen
+- Verbeterde UI layout met pool-specifieke configuratie opties
+- Wachtwoord wordt nu per pool configuratie opgeslagen en geladen
 
-### Functionaliteit
-- **API Pool Detectie**: Automatisch ophalen van pool configuratie uit rig API
-- **Live Indicators**: Groene achtergrond en "(live)" tekst voor API data
-- **Handmatige Override**: Mogelijkheid om pool configuratie handmatig aan te passen
-- **Visuele Feedback**: Pool badges en sectie headers voor duidelijke organisatie
-- **Unmineable Support**: Placeholder waarden voor unmineable.com configuratie
+## [1.3.0] - 2024-06-30
 
-## [2.0.0] - 2024-12-19 
+### Toegevoegd
+- **Mining Pool Configuratie**: Volledig systeem voor pool instellingen
+- **Pool Selectie**: Dropdown met populaire mining pools
+- **API Key Management**: Veilige opslag van pool API keys
+- **Worker Name Configuratie**: Instellingen voor worker namen
+- **Custom Pool URL**: Mogelijkheid om custom pools toe te voegen
+- **Pool Testing**: Test functionaliteit voor pool verbindingen
+- **Pool Status Tracking**: Real-time status van pool verbindingen
+
+### Technische Details
+- `MiningPoolService` class voor pool API calls
+- `testPoolConnection()` functie
+- `handlePoolSelection()` functie
+- Pool configuraties voor Antpool, F2Pool, Poolin, BTC.com, etc.
+- Veilige API key opslag
+
+### UI Verbeteringen
+- Moderne pool configuratie interface
+- Real-time status indicators
+- Responsive form layout
+- Duidelijke error handling
+- Smooth animaties en transitions
+
+## [1.2.0] - 2024-12-19
+
+### Toegevoegd
+- **Sidebar Navigation**: Volledig navigatiesysteem met hamburger menu
+- **API Instellingen**: CoinMarketCap API key configuratie
+- **API Status Tracking**: Real-time status van API verbindingen
+- **Fallback naar CoinGecko**: Automatische fallback wanneer CoinMarketCap niet beschikbaar is
+- **Responsive Design**: Volledig responsive layout voor alle apparaten
+- **Modern UI**: Lichte, moderne styling met gradients en shadows
+
+### Technische Details
+- Hamburger menu functionaliteit
+- Sidebar navigatie systeem
+- API status monitoring
+- CoinGecko fallback implementatie
+- Responsive CSS met media queries
+
+### UI Verbeteringen
+- Moderne gradient backgrounds
+- Smooth animaties en transitions
+- Hover effecten en shadows
+- Mobile-first responsive design
+- Intuïtieve navigatie
+
+## [1.1.0] - 2024-12-19
+
+### Toegevoegd
+- **Real-time Coin Data**: Live prijzen van CoinMarketCap en CoinGecko
+- **Coin Selectie Grid**: Interactieve grid voor het selecteren van coins
+- **Hashrate Input**: Gebruiksvriendelijke hashrate invoer
+- **Power Consumption**: Stroomverbruik configuratie
+- **Electricity Cost**: Elektriciteitskosten instellingen
+- **Pool Fee**: Pool fee configuratie
+- **Settings Persistence**: Instellingen worden opgeslagen in localStorage
+
+### Technische Details
+- CoinMarketCap API integratie
+- CoinGecko API fallback
+- Real-time data fetching
+- Settings management systeem
+- LocalStorage persistentie
+
+### UI Verbeteringen
+- Moderne coin selection grid
+- Real-time data updates
+- Responsive design
+- Intuïtieve form layout
+
+## [1.0.0] - 2024-12-19
+
+### Toegevoegd
+- **Basis SHA-256 Mining Profit Calculator**: Eerste versie van de applicatie
+- **Electron Desktop App**: Cross-platform desktop applicatie
+- **Hashrate Berekenen**: Basis hashrate input en berekeningen
+- **Coin Prijzen**: Basis coin prijs integratie
+- **Profit Berekening**: Dagelijkse winst berekeningen
+- **Moderne UI**: Basis moderne interface
+
+### Technische Details
+- Electron framework setup
+- Basis profit calculation logic
+- Coin price integration
+- Modern CSS styling
+- Responsive design foundation 
+
+## Versie 1.0.0
+- Initiële versie van de crypto miner profit calculator
+- Electron desktop app met SHA-256 mining winstberekening
+- Multi-rig management systeem
+- Real-time data van CoinMarketCap/CoinGecko
+- Uitgebreide rig- en poolconfiguratie
+- Modern dashboard met grafieken en tijdsselectie
+- Coins beheer via instellingen
+- Profit calculator in aparte sectie
+
+## Versie 1.1.0
+- Pool data opslag en beheer toegevoegd
+- Wachtwoordbeheer per pool configuratie
+- Configuratiebeheer met naam, API key, worker name, URL en wachtwoord
+- Persistent opslag in localStorage met backward compatibility
+- Helper functie voor leesbare pool namen
+- Migratie van oude data naar nieuw formaat
+
+## Versie 1.2.0
+- UI layout verbeteringen
+- Duidelijke scheiding van wachtwoord en configuratiebeheer secties
+- Wachtwoordveld per pool onder stratum configuratie geplaatst
+- Hoofd wachtwoordveld verwijderd
+- Prompt() functie vervangen door modale popup met async/await
+- Naam invoer via inputveld in plaats van prompt
+
+## Versie 1.3.0
+- CSS verbeteringen voor bewerkbare wachtwoordvelden
+- Visuele feedback voor bewerkbare velden
+- Testknoppen toegevoegd voor debugging
+- Velden blijven bewerkbaar na refresh
+- "Bewerk Huidige" knop toegevoegd voor directe bewerking
+- Modale popup uitgebreid met bewerkoptie ("B" + nummer)
+
+## Versie 1.4.0
+- Verwijder optie toegevoegd aan pool configuratie beheer
+- "D" + nummer om configuraties te verwijderen
+- Bevestigingsdialoog bij verwijderen
+- Zowel in algemene als per-rig configuratie lijsten
+- Simpelere interface met directe bewerk/verwijder opties 

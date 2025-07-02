@@ -14,6 +14,9 @@ let poolData = null;
 let hashrateHistory = [];
 let rigHashrateHistory = {};
 
+// Pool data opslag per rig
+let rigPoolData = {};
+
 // Real-time hashrate monitoring
 let hashrateUpdateInterval = null;
 let rigMonitoringIntervals = {};
@@ -97,7 +100,9 @@ const elements = {
     poolStatusIndicator: document.getElementById('pool-status-indicator'),
     poolStatusText: document.getElementById('pool-status-text'),
     testPool: document.getElementById('test-pool'),
-    refreshDashboardBtn: document.getElementById('refresh-dashboard-btn')
+    refreshDashboardBtn: document.getElementById('refresh-dashboard-btn'),
+    poolPassword: document.getElementById('pool-password'),
+    passwordToggle: document.getElementById('password-toggle')
 };
 
 // Event listeners
@@ -110,6 +115,8 @@ window.addEventListener('DOMContentLoaded', () => {
     setupChartScaleToggle();
     setupDashboardRefreshButton();
     loadRigHashrateHistory();
+    loadRigPoolData(); // Laad pool data
+    renderPoolOverview(); // Render initieel overzicht
 });
 
 function initializeApp() {
@@ -236,7 +243,7 @@ function setupEventListeners() {
     // Initialiseer charts op de achtergrond
     setTimeout(() => {
         initializeCharts();
-    }, 500);
+    }, 1000);
     
     // Globale instellingen
     if (elements.electricityCost) {
@@ -250,6 +257,14 @@ function setupEventListeners() {
             // Update berekeningen wanneer pool fee verandert
             // Profit calculator wordt nu in instellingen beheerd
         });
+    }
+    
+    // Wachtwoord functionaliteit
+    if (elements.poolPassword) {
+        elements.poolPassword.addEventListener('input', savePoolPassword);
+    }
+    if (elements.passwordToggle) {
+        elements.passwordToggle.addEventListener('click', togglePassword);
     }
 }
 
@@ -576,14 +591,33 @@ function toggleCoinSelection(coin, card) {
 }
 
 // Mining Rigs Management
-function addNewRig() {
+async function addNewRig() {
+    // Vraag eerst om de rig naam
+    const rigName = await showPrompt('Nieuwe Rig Toevoegen', 'Voer een naam in voor de nieuwe rig:', `Rig ${miningRigs.length + 1}`);
+    if (!rigName || !rigName.trim()) {
+        return; // Gebruiker heeft geannuleerd
+    }
+    
+    // Vraag om het IP adres
+    const ipAddress = await showPrompt('Nieuwe Rig Toevoegen', 'Voer het IP adres in van de rig:', '192.168.1.100');
+    if (!ipAddress || !ipAddress.trim()) {
+        return; // Gebruiker heeft geannuleerd
+    }
+    
+    // Valideer IP adres
+    const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    if (!ipRegex.test(ipAddress.trim())) {
+        alert('Voer een geldig IP-adres in (bijv. 192.168.1.100)');
+        return;
+    }
+    
     const newRig = {
         id: Date.now().toString(),
-        name: `Rig ${miningRigs.length + 1}`,
+        name: rigName.trim(),
         hashrate: 100,
         powerConsumption: 1000,
         isActive: true,
-        ipAddress: '',
+        ipAddress: ipAddress.trim(),
         rigType: 'nerdaxe', // Default naar Nerdaxe
         algorithm: 'sha256', // Default naar SHA-256
         customApiEndpoint: '/api/system/info', // Default Nerdaxe endpoint
@@ -624,15 +658,33 @@ function toggleRig(rigId) {
     }
 }
 
-function editRig(rigId) {
+async function editRig(rigId) {
     const rig = miningRigs.find(r => r.id === rigId);
     if (rig) {
-        const newName = prompt('Nieuwe naam voor de rig:', rig.name);
-        if (newName && newName.trim()) {
-            rig.name = newName.trim();
-            renderRigsList();
-            saveRigsToStorage();
+        // Vraag om nieuwe naam
+        const newName = await showPrompt('Rig Bewerken', 'Nieuwe naam voor de rig:', rig.name);
+        if (!newName || !newName.trim()) {
+            return; // Gebruiker heeft geannuleerd
         }
+        
+        // Vraag om nieuw IP adres
+        const newIpAddress = await showPrompt('Rig Bewerken', 'Nieuw IP adres voor de rig:', rig.ipAddress || '192.168.1.100');
+        if (!newIpAddress || !newIpAddress.trim()) {
+            return; // Gebruiker heeft geannuleerd
+        }
+        
+        // Valideer IP adres
+        const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+        if (!ipRegex.test(newIpAddress.trim())) {
+            alert('Voer een geldig IP-adres in (bijv. 192.168.1.100)');
+            return;
+        }
+        
+        // Update rig gegevens
+        rig.name = newName.trim();
+        rig.ipAddress = newIpAddress.trim();
+        renderRigsList();
+        saveRigsToStorage();
     }
 }
 
@@ -665,7 +717,7 @@ function renderRigsList() {
         const statusMessage = rig.statusMessage || 'Status onbekend';
         
         rigCard.innerHTML = `
-            <div class="rig-header">
+            <div class="rig-header" onclick="toggleRigExpansion('${rig.id}')">
                 <div class="rig-info">
                     <div class="rig-name">${rig.name}</div>
                     <div class="rig-details">
@@ -681,7 +733,7 @@ function renderRigsList() {
                     </div>
                     <div class="rig-status-text">${statusMessage}</div>
                 </div>
-                <div class="rig-actions">
+                <div class="rig-actions" onclick="event.stopPropagation()">
                     <button class="btn-toggle ${isHashing ? 'hashing' : 'idle'}" onclick="toggleRig('${rig.id}')">
                         ${isHashing ? '🟢 Hashing' : '🔴 Idle'}
                     </button>
@@ -689,9 +741,10 @@ function renderRigsList() {
                     <button class="btn-monitor" onclick="toggleRigMonitoring('${rig.id}')" title="Toggle monitoring">
                         ${rigMonitoringIntervals[rig.id] ? '⏸️' : '▶️'}
                     </button>
-                    <button class="btn-edit" onclick="editRig('${rig.id}')">✏️</button>
+                    <button class="btn-edit" onclick="editRig('${rig.id}')" title="Bewerk naam en IP adres">✏️</button>
                     <button class="btn-delete" onclick="deleteRig('${rig.id}')">🗑️</button>
                 </div>
+                <div class="rig-expand-icon">▶️</div>
             </div>
             <div class="rig-fields">
                 <div class="rig-field">
@@ -1191,8 +1244,22 @@ function formatHashrate(hashrate) {
 }
 
 function initializeCharts() {
-    const profitCtx = document.getElementById('profit-chart').getContext('2d');
-    const roiCtx = document.getElementById('roi-chart').getContext('2d');
+    const profitCanvas = document.getElementById('profit-chart');
+    const roiCanvas = document.getElementById('roi-chart');
+    
+    // Check of de canvas elementen bestaan
+    if (!profitCanvas || !roiCanvas) {
+        console.warn('Chart canvas elementen niet gevonden, charts worden niet geïnitialiseerd');
+        return;
+    }
+    
+    const profitCtx = profitCanvas.getContext('2d');
+    const roiCtx = roiCanvas.getContext('2d');
+    
+    if (!profitCtx || !roiCtx) {
+        console.warn('Kan geen 2D context krijgen voor charts');
+        return;
+    }
 
     charts.profit = new Chart(profitCtx, {
         type: 'bar',
@@ -1240,6 +1307,12 @@ function initializeCharts() {
 }
 
 function updateCharts(results) {
+    // Check of charts bestaan
+    if (!charts.profit || !charts.roi) {
+        console.warn('Charts zijn niet geïnitialiseerd');
+        return;
+    }
+    
     // Update profit chart
     charts.profit.data.labels = results.map(r => r.symbol);
     charts.profit.data.datasets[0].data = results.map(r => r.dailyProfit);
@@ -1903,6 +1976,19 @@ async function checkRigStatus(rigId) {
         // Update rig status
         updateRigStatus(rigId, isHashing, statusMessage);
         
+        // Sla pool data op voor het overzicht
+        if (isHashing && data) {
+            const poolData = {
+                shares: data.sharesAccepted || data.shares || data.accepted_shares || 0,
+                rejected: data.sharesRejected || data.rejected_shares || 0,
+                // Stratum informatie
+                stratumUrl: data.stratumURL || data.poolUrl || data.pool?.url || data.stratum?.url || '',
+                stratumPort: data.stratumPort || data.poolPort || data.pool?.port || data.stratum?.port || '',
+                stratumUser: data.stratumUser || data.poolUser || data.pool?.user || data.stratum?.user || ''
+            };
+            updateRigPoolData(rigId, poolData);
+        }
+        
         // Update hashrate in rig data als die significant verschilt
         if (isHashing && Math.abs(hashrate - rig.hashrate) > 1) {
             console.log(`📈 Updating hashrate voor ${rig.name}: ${rig.hashrate} → ${hashrate}`);
@@ -2290,6 +2376,20 @@ async function fetchAllRigStats() {
             while (rigHashrateHistory[rig.id].length && now - rigHashrateHistory[rig.id][0].t > MAX_HISTORY_MS) {
                 rigHashrateHistory[rig.id].shift();
             }
+            
+            // Sla pool data op voor het overzicht
+            if (data && data.hashrate !== undefined) {
+                const poolData = {
+                    shares: data.shares || 0,
+                    rejected: data.rejected || 0,
+                    // Stratum informatie
+                    stratumUrl: data.stratumUrl || data.stratum_url || '',
+                    stratumPort: data.stratumPort || data.stratum_port || '',
+                    stratumUser: data.stratumUser || data.stratum_user || ''
+                };
+                updateRigPoolData(rig.id, poolData);
+            }
+            
             if (data.hashrate) totalHashrate += data.hashrate;
             if (data.expectedHashrate) expectedHashrate += data.expectedHashrate;
             if (data.shares) totalShares += data.shares;
@@ -2335,7 +2435,11 @@ async function fetchRigApiData(rig) {
             rejected: json.sharesRejected || 0,
             efficiency: json.power ? (json.power / (json.hashRate || 1)) : 0,
             bestDifficulty: parseFloat((json.bestDiff||'').replace(/[^\d.]/g, '')) || 0,
-            diffSinceBoot: parseFloat((json.bestSessionDiff||'').replace(/[^\d.]/g, '')) || 0
+            diffSinceBoot: parseFloat((json.bestSessionDiff||'').replace(/[^\d.]/g, '')) || 0,
+            // Stratum informatie
+            stratumUrl: json.stratumURL || json.poolUrl || json.pool?.url || json.stratum?.url || '',
+            stratumPort: json.stratumPort || json.poolPort || json.pool?.port || json.stratum?.port || '',
+            stratumUser: json.stratumUser || json.poolUser || json.pool?.user || json.stratum?.user || ''
         };
     } else if (rig.rigType === 'asic' || rig.rigType === 'gpu') {
         // ASIC/GPU API mapping
@@ -2346,7 +2450,11 @@ async function fetchRigApiData(rig) {
             rejected: json.rejected || 0,
             efficiency: json.efficiency || 0,
             bestDifficulty: json.best_difficulty || 0,
-            diffSinceBoot: json.difficulty_since_boot || 0
+            diffSinceBoot: json.difficulty_since_boot || 0,
+            // Stratum informatie
+            stratumUrl: json.stratum_url || json.pool_url || json.pool?.url || json.stratum?.url || '',
+            stratumPort: json.stratum_port || json.pool_port || json.pool?.port || json.stratum?.port || '',
+            stratumUser: json.stratum_user || json.pool_user || json.pool?.user || json.stratum?.user || ''
         };
     }
     // Fallback
@@ -2658,5 +2766,951 @@ function loadRigHashrateHistory() {
         }
     } catch (e) {
         console.warn('Kan rigHashrateHistory niet laden:', e);
+    }
+}
+
+// Pool data opslag en overzicht functies
+const RIG_POOL_DATA_KEY = 'rig_pool_data_v1';
+
+function saveRigPoolData() {
+    try {
+        localStorage.setItem(RIG_POOL_DATA_KEY, JSON.stringify(rigPoolData));
+    } catch (e) {
+        console.warn('Kan rig pool data niet opslaan:', e);
+    }
+}
+
+function loadRigPoolData() {
+    try {
+        const raw = localStorage.getItem(RIG_POOL_DATA_KEY);
+        if (raw) {
+            const data = JSON.parse(raw);
+            if (typeof data === 'object') {
+                // Migreer oude data naar nieuwe formaat
+                const migratedData = {};
+                for (const key in data) {
+                    const item = data[key];
+                    if (item.rigId && item.poolType) {
+                        // Nieuwe formaat, behoud zoals het is
+                        migratedData[key] = item;
+                    } else if (item.rigId) {
+                        // Oud formaat, migreer naar nieuwe key
+                        const newKey = `${item.rigId}_unknown`;
+                        migratedData[newKey] = {
+                            ...item,
+                            poolType: 'unknown'
+                        };
+                    }
+                }
+                rigPoolData = migratedData;
+            }
+        }
+    } catch (e) {
+        console.warn('Kan rig pool data niet laden:', e);
+    }
+}
+
+function updateRigPoolData(rigId, poolData) {
+    if (!rigId || !poolData) return;
+    
+    // Haal huidige pool type op
+    const poolSelect = document.getElementById('pool-select');
+    const currentPoolType = poolSelect ? poolSelect.value : 'unknown';
+    
+    // Maak unieke key voor rig + pool combinatie
+    const poolKey = `${rigId}_${currentPoolType}`;
+    
+    rigPoolData[poolKey] = {
+        ...poolData,
+        timestamp: Date.now(),
+        rigId: rigId,
+        poolType: currentPoolType
+    };
+    
+    saveRigPoolData();
+    renderPoolOverview();
+}
+
+function renderPoolOverview() {
+    const container = document.getElementById('pool-overview-list');
+    if (!container) return;
+    
+    const activeRigs = miningRigs.filter(rig => rig.isActive);
+    
+    if (activeRigs.length === 0) {
+        container.innerHTML = `
+            <div class="pool-overview-empty">
+                <div class="pool-overview-empty-icon">⛏️</div>
+                <h5>Geen actieve miners</h5>
+                <p>Voeg mining rigs toe en activeer ze om pool data te zien</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '';
+    
+    activeRigs.forEach(rig => {
+        const statusClass = rig.isHashing ? 'hashing' : 'idle';
+        const statusText = rig.isHashing ? 'Hashing' : 'Idle';
+        
+        // Zoek alle pool data voor deze rig
+        const rigPoolDataKeys = Object.keys(rigPoolData).filter(key => key.startsWith(rig.id + '_'));
+        const rigPoolDataList = rigPoolDataKeys.map(key => rigPoolData[key]).sort((a, b) => b.timestamp - a.timestamp);
+        
+        html += `
+            <div class="pool-overview-item">
+                <div class="pool-overview-item-header">
+                    <div class="pool-overview-item-title">
+                        <span class="pool-overview-item-name">${rig.name || `Rig ${rig.id}`}</span>
+                        <span class="pool-overview-item-type">${rig.rigType || 'Custom'}</span>
+                    </div>
+                    <div class="pool-overview-item-status">
+                        <span class="pool-overview-status-indicator ${statusClass}"></span>
+                        <span class="pool-overview-status-text">${statusText}</span>
+                    </div>
+                </div>
+                <div class="pool-overview-item-data">
+        `;
+        
+        if (rigPoolDataList.length > 0) {
+            // Toon data van alle pools voor deze rig
+            rigPoolDataList.forEach((poolData, index) => {
+                const poolName = getPoolDisplayName(poolData.poolType);
+                const isLatest = index === 0;
+                
+                html += `
+                    <div class="pool-data-section ${isLatest ? 'latest' : 'historical'}">
+                        <div class="pool-data-header">
+                            <span class="pool-name">${poolName}</span>
+                            ${isLatest ? '<span class="current-badge">Huidig</span>' : ''}
+                        </div>
+                `;
+                
+                // Shares
+                if (poolData.shares !== undefined) {
+                    html += `
+                        <div class="pool-overview-data-item">
+                            <span class="pool-overview-data-label">Shares</span>
+                            <span class="pool-overview-data-value">${poolData.shares}</span>
+                        </div>
+                    `;
+                }
+                
+                // Rejected shares
+                if (poolData.rejected !== undefined) {
+                    html += `
+                        <div class="pool-overview-data-item">
+                            <span class="pool-overview-data-label">Geweigerd</span>
+                            <span class="pool-overview-data-value">${poolData.rejected}</span>
+                        </div>
+                    `;
+                }
+                
+                // Stratum informatie
+                if (poolData.stratumUrl || poolData.stratumPort || poolData.stratumUser) {
+                    html += `
+                        <div class="pool-overview-data-item" style="grid-column: 1 / -1;">
+                            <span class="pool-overview-data-label">Stratum Configuratie</span>
+                            <div class="stratum-info">
+                                ${poolData.stratumUrl ? `<div class="stratum-url">URL: ${poolData.stratumUrl}</div>` : ''}
+                                ${poolData.stratumPort ? `<div class="stratum-port">Poort: ${poolData.stratumPort}</div>` : ''}
+                                ${poolData.stratumUser ? `<div class="stratum-user">User: ${poolData.stratumUser}</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Pool configuratie acties per pool
+                html += `
+                    <div class="pool-overview-data-item" style="grid-column: 1 / -1;">
+                        <span class="pool-overview-data-label">Pool Configuratie</span>
+                        <div class="pool-config-section">
+                            <div class="pool-config-name-input">
+                                <label for="pool-config-name-${rig.id}-${poolData.poolType}">Naam configuratie:</label>
+                                <input type="text" id="pool-config-name-${rig.id}-${poolData.poolType}" placeholder="Bijv. Mijn Antpool Config">
+                            </div>
+                            <div class="pool-password-input">
+                                <label for="pool-password-${rig.id}-${poolData.poolType}">Wachtwoord voor ${poolName}:</label>
+                                <div class="password-input-container">
+                                    <input type="password" id="pool-password-${rig.id}-${poolData.poolType}" placeholder="Voer wachtwoord in voor deze pool">
+                                    <button type="button" class="password-toggle" onclick="togglePoolPassword('${rig.id}', '${poolData.poolType}')">
+                                        <span class="password-icon">👁️</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="pool-item-actions">
+                                <button class="btn-primary btn-small" onclick="savePoolConfigForRig('${rig.id}', '${poolData.poolType}')">💾 Opslaan Configuratie</button>
+                                <button class="btn-secondary btn-small" onclick="loadPoolConfigForRig('${rig.id}', '${poolData.poolType}')">📋 Bekijk Configuraties</button>
+                                <button class="btn-secondary btn-small" onclick="editCurrentPoolConfig('${rig.id}', '${poolData.poolType}')" style="background: #ffa726; color: white;">✏️ Bewerk Huidige</button>
+                                <button class="btn-secondary btn-small" onclick="testPasswordField('${rig.id}', '${poolData.poolType}')" style="background: #ff6b6b; color: white;">🧪 Test Wachtwoord</button>
+                                <button class="btn-secondary btn-small" onclick="testEventListeners('${rig.id}', '${poolData.poolType}')" style="background: #4ecdc4; color: white;">🎯 Test Events</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Timestamp
+                if (poolData.timestamp) {
+                    const date = new Date(poolData.timestamp);
+                    html += `
+                        <div class="pool-overview-item-timestamp">
+                            Laatste update: ${date.toLocaleString('nl-NL')}
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            });
+        } else {
+            html += `
+                <div class="pool-overview-data-item" style="grid-column: 1 / -1;">
+                    <span class="pool-overview-data-label">Status</span>
+                    <span class="pool-overview-data-value">Geen pool data beschikbaar</span>
+                </div>
+            `;
+        }
+        
+        html += `
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+    
+    // Maak alle wachtwoordvelden permanent bewerkbaar
+    setTimeout(() => {
+        makePasswordFieldsEditable();
+    }, 100);
+}
+
+// Functie om alle wachtwoordvelden permanent bewerkbaar te maken
+function makePasswordFieldsEditable() {
+    const passwordInputs = document.querySelectorAll('input[type="password"]');
+    passwordInputs.forEach(input => {
+        // Force enable
+        input.disabled = false;
+        input.readOnly = false;
+        
+        // CSS fixes
+        input.style.pointerEvents = 'auto';
+        input.style.userSelect = 'auto';
+        input.style.position = 'relative';
+        input.style.zIndex = '1';
+        
+        // Event listeners om focus te behouden
+        input.addEventListener('focus', (e) => {
+            input.style.borderColor = '#667eea';
+            input.style.boxShadow = '0 0 0 2px rgba(102, 126, 234, 0.2)';
+        });
+        
+        input.addEventListener('blur', (e) => {
+            input.style.borderColor = '#ddd';
+            input.style.boxShadow = 'none';
+        });
+        
+        // Voorkom dat andere elementen focus stelen
+        input.addEventListener('click', (e) => {
+            e.stopPropagation();
+            input.focus();
+        });
+    });
+}
+
+function refreshPoolOverview() {
+    // Haal data op van alle actieve rigs
+    const activeRigs = miningRigs.filter(rig => rig.isActive);
+    
+    if (activeRigs.length === 0) {
+        renderPoolOverview();
+        return;
+    }
+    
+    // Toon loading state
+    const container = document.getElementById('pool-overview-list');
+    if (container) {
+        container.innerHTML = `
+            <div class="pool-overview-empty">
+                <div class="pool-overview-empty-icon">⏳</div>
+                <h5>Pool data ophalen...</h5>
+                <p>Bezig met het ophalen van de laatste data van alle miners</p>
+            </div>
+        `;
+    }
+    
+    // Haal data op van alle rigs
+    Promise.all(activeRigs.map(async (rig) => {
+        try {
+            const data = await fetchRigApiData(rig);
+            if (data && data.hashrate !== undefined) {
+                updateRigPoolData(rig.id, data);
+            }
+        } catch (error) {
+            console.warn(`Kan geen data ophalen van rig ${rig.name || rig.id}:`, error);
+        }
+    })).finally(() => {
+        renderPoolOverview();
+        // Maak wachtwoordvelden bewerkbaar na refresh
+        setTimeout(() => {
+            makePasswordFieldsEditable();
+        }, 200);
+    });
+}
+
+// Wachtwoord functionaliteit
+function togglePassword() {
+    const passwordInput = document.getElementById('pool-password');
+    const toggleButton = document.getElementById('password-toggle');
+    const passwordIcon = toggleButton.querySelector('.password-icon');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleButton.classList.add('showing');
+        passwordIcon.textContent = '🙈';
+    } else {
+        passwordInput.type = 'password';
+        toggleButton.classList.remove('showing');
+        passwordIcon.textContent = '👁️';
+    }
+}
+
+function savePoolPassword() {
+    const passwordInput = document.getElementById('pool-password');
+    if (passwordInput) {
+        try {
+            localStorage.setItem('pool_password', passwordInput.value);
+        } catch (e) {
+            console.warn('Kan pool wachtwoord niet opslaan:', e);
+        }
+    }
+}
+
+function loadPoolPassword() {
+    const passwordInput = document.getElementById('pool-password');
+    if (passwordInput) {
+        try {
+            const savedPassword = localStorage.getItem('pool_password');
+            if (savedPassword) {
+                passwordInput.value = savedPassword;
+            }
+        } catch (e) {
+            console.warn('Kan pool wachtwoord niet laden:', e);
+        }
+    }
+}
+
+function getPoolDisplayName(poolType) {
+    const poolNames = {
+        'antpool': 'Antpool',
+        'f2pool': 'F2Pool',
+        'poolin': 'Poolin',
+        'btccom': 'BTC.com',
+        'slushpool': 'Slushpool',
+        'viabtc': 'ViaBTC',
+        'binance': 'Binance Pool',
+        'okex': 'OKEx Pool',
+        'custom': 'Custom Pool',
+        'unknown': 'Onbekende Pool'
+    };
+    return poolNames[poolType] || poolType;
+}
+
+// Pool configuratie beheer
+const POOL_CONFIGS_KEY = 'saved_pool_configurations_v1';
+
+async function saveCurrentPoolConfig() {
+    const poolSelect = document.getElementById('pool-select');
+    const poolApiKey = document.getElementById('pool-api-key');
+    const workerName = document.getElementById('worker-name');
+    const poolUrl = document.getElementById('pool-url');
+    const poolPassword = document.getElementById('pool-password');
+    
+    if (!poolSelect || !poolSelect.value) {
+        alert('Selecteer eerst een pool type');
+        return;
+    }
+    
+    const configName = await showPrompt('Pool Configuratie Opslaan', 'Geef deze pool configuratie een naam:');
+    if (!configName) return;
+    
+    const config = {
+        id: Date.now().toString(),
+        name: configName,
+        poolType: poolSelect.value,
+        apiKey: poolApiKey ? poolApiKey.value : '',
+        workerName: workerName ? workerName.value : '',
+        poolUrl: poolUrl ? poolUrl.value : '',
+        password: poolPassword ? poolPassword.value : '',
+        timestamp: Date.now()
+    };
+    
+    try {
+        const existingConfigs = JSON.parse(localStorage.getItem(POOL_CONFIGS_KEY) || '[]');
+        existingConfigs.push(config);
+        localStorage.setItem(POOL_CONFIGS_KEY, JSON.stringify(existingConfigs));
+        
+        alert(`Pool configuratie "${configName}" opgeslagen!`);
+    } catch (e) {
+        console.error('Kan pool configuratie niet opslaan:', e);
+        alert('Fout bij opslaan van pool configuratie');
+    }
+}
+
+async function loadPoolConfigurations() {
+    try {
+        const configs = JSON.parse(localStorage.getItem(POOL_CONFIGS_KEY) || '[]');
+        
+        if (configs.length === 0) {
+            alert('Geen opgeslagen pool configuraties gevonden');
+            return;
+        }
+        
+        let configList = 'Opgeslagen Pool Configuraties:\n\n';
+        configs.forEach((config, index) => {
+            const date = new Date(config.timestamp).toLocaleString('nl-NL');
+            configList += `${index + 1}. ${config.name} (${getPoolDisplayName(config.poolType)})\n`;
+            configList += `   Rig: ${config.rigName}\n`;
+            configList += `   Opgeslagen: ${date}\n\n`;
+        });
+        
+        configList += '\nVoer het nummer in om te laden, "B" + nummer om te bewerken, "D" + nummer om te verwijderen:';
+        
+        const choice = await showPrompt('Pool Configuratie Beheer', configList, '');
+        if (!choice) return;
+        
+        if (choice.toLowerCase().startsWith('b')) {
+            // Bewerk modus
+            const configIndex = parseInt(choice.substring(1)) - 1;
+            if (configIndex >= 0 && configIndex < configs.length) {
+                await editPoolConfig(configs[configIndex]);
+            } else {
+                alert('Ongeldige keuze');
+            }
+        } else if (choice.toLowerCase().startsWith('d')) {
+            // Verwijder modus
+            const configIndex = parseInt(choice.substring(1)) - 1;
+            if (configIndex >= 0 && configIndex < configs.length) {
+                if (confirm(`Weet je zeker dat je "${configs[configIndex].name}" wilt verwijderen?`)) {
+                    deletePoolConfig(configs[configIndex].id);
+                }
+            } else {
+                alert('Ongeldige keuze');
+            }
+        } else {
+            // Laad modus
+            const configIndex = parseInt(choice) - 1;
+            if (configIndex >= 0 && configIndex < configs.length) {
+                loadPoolConfig(configs[configIndex]);
+            } else {
+                alert('Ongeldige keuze');
+            }
+        }
+    } catch (e) {
+        console.error('Kan pool configuraties niet laden:', e);
+        alert('Fout bij laden van pool configuraties');
+    }
+}
+
+function loadPoolConfig(config) {
+    const poolSelect = document.getElementById('pool-select');
+    const poolApiKey = document.getElementById('pool-api-key');
+    const workerName = document.getElementById('worker-name');
+    const poolUrl = document.getElementById('pool-url');
+    const poolPassword = document.getElementById('pool-password');
+    
+    if (poolSelect) poolSelect.value = config.poolType;
+    if (poolApiKey) poolApiKey.value = config.apiKey;
+    if (workerName) workerName.value = config.workerName;
+    if (poolUrl) poolUrl.value = config.poolUrl;
+    if (poolPassword) poolPassword.value = config.password;
+    
+    // Trigger pool selection change
+    if (poolSelect) {
+        const event = new Event('change');
+        poolSelect.dispatchEvent(event);
+    }
+    
+    alert(`Pool configuratie "${config.name}" geladen!`);
+}
+
+function deletePoolConfig(configId) {
+    try {
+        const configs = JSON.parse(localStorage.getItem(POOL_CONFIGS_KEY) || '[]');
+        const filteredConfigs = configs.filter(config => config.id !== configId);
+        localStorage.setItem(POOL_CONFIGS_KEY, JSON.stringify(filteredConfigs));
+        alert('Pool configuratie verwijderd!');
+    } catch (e) {
+        console.error('Kan pool configuratie niet verwijderen:', e);
+        alert('Fout bij verwijderen van pool configuratie');
+    }
+}
+
+// Pool configuratie beheer per rig
+function savePoolConfigForRig(rigId, poolType) {
+    const poolPasswordInput = document.getElementById(`pool-password-${rigId}-${poolType}`);
+    const password = poolPasswordInput ? poolPasswordInput.value : '';
+    const nameInput = document.getElementById(`pool-config-name-${rigId}-${poolType}`);
+    const configName = nameInput ? nameInput.value.trim() : '';
+    
+    if (!password) {
+        alert('Voer eerst een wachtwoord in voor deze pool configuratie');
+        return;
+    }
+    if (!configName) {
+        alert('Voer een naam in voor deze pool configuratie');
+        return;
+    }
+    
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (!rig) {
+        alert('Rig niet gevonden');
+        return;
+    }
+    
+    const config = {
+        id: Date.now().toString(),
+        name: configName,
+        rigId: rigId,
+        rigName: rig.name,
+        poolType: poolType,
+        password: password,
+        timestamp: Date.now()
+    };
+    
+    try {
+        const existingConfigs = JSON.parse(localStorage.getItem(POOL_CONFIGS_KEY) || '[]');
+        existingConfigs.push(config);
+        localStorage.setItem(POOL_CONFIGS_KEY, JSON.stringify(existingConfigs));
+        
+        alert(`Pool configuratie "${configName}" opgeslagen voor ${rig.name}!`);
+    } catch (e) {
+        console.error('Kan pool configuratie niet opslaan:', e);
+        alert('Fout bij opslaan van pool configuratie');
+    }
+}
+
+async function loadPoolConfigForRig(rigId, poolType) {
+    try {
+        const configs = JSON.parse(localStorage.getItem(POOL_CONFIGS_KEY) || '[]');
+        const rigConfigs = configs.filter(config => config.rigId === rigId && config.poolType === poolType);
+        
+        if (rigConfigs.length === 0) {
+            alert('Geen opgeslagen configuraties gevonden voor deze rig en pool');
+            return;
+        }
+        
+        let configList = `Opgeslagen Configuraties voor ${rigConfigs[0].rigName}:\n\n`;
+        rigConfigs.forEach((config, index) => {
+            const date = new Date(config.timestamp).toLocaleString('nl-NL');
+            configList += `${index + 1}. ${config.name}\n`;
+            configList += `   Pool: ${getPoolDisplayName(config.poolType)}\n`;
+            configList += `   Opgeslagen: ${date}\n\n`;
+        });
+        
+        configList += '\nVoer het nummer in om te laden, "B" + nummer om te bewerken, of Enter om te annuleren:';
+        
+        const choice = await showPrompt('Pool Configuratie Beheer', configList, '');
+        if (!choice) return;
+        
+        if (choice.toLowerCase().startsWith('b')) {
+            // Bewerk modus
+            const configIndex = parseInt(choice.substring(1)) - 1;
+            if (configIndex >= 0 && configIndex < rigConfigs.length) {
+                await editPoolConfig(rigConfigs[configIndex]);
+            } else {
+                alert('Ongeldige keuze');
+            }
+        } else {
+            // Laad modus
+            const configIndex = parseInt(choice) - 1;
+            if (configIndex >= 0 && configIndex < rigConfigs.length) {
+                loadPoolConfigForRigFromSelection(rigConfigs[configIndex]);
+            } else {
+                alert('Ongeldige keuze');
+            }
+        }
+    } catch (e) {
+        console.error('Kan pool configuraties niet laden:', e);
+        alert('Fout bij laden van pool configuraties');
+    }
+}
+
+function loadPoolConfigForRigFromSelection(config) {
+    const poolPasswordInput = document.getElementById(`pool-password-${config.rigId}-${config.poolType}`);
+    if (poolPasswordInput) {
+        poolPasswordInput.value = config.password;
+    }
+    const nameInput = document.getElementById(`pool-config-name-${config.rigId}-${config.poolType}`);
+    if (nameInput) {
+        nameInput.value = config.name;
+    }
+    
+    alert(`Pool configuratie "${config.name}" geladen voor ${config.rigName}!`);
+}
+
+function togglePoolPassword(rigId, poolType) {
+    const passwordInput = document.getElementById(`pool-password-${rigId}-${poolType}`);
+    const toggleButton = passwordInput.nextElementSibling;
+    const passwordIcon = toggleButton.querySelector('.password-icon');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleButton.classList.add('showing');
+        passwordIcon.textContent = '🙈';
+    } else {
+        passwordInput.type = 'password';
+        toggleButton.classList.remove('showing');
+        passwordIcon.textContent = '👁️';
+    }
+}
+
+// Debug functie om wachtwoordvelden te controleren
+function debugPasswordFields() {
+    console.log('=== Debug Password Fields ===');
+    const passwordInputs = document.querySelectorAll('input[type="password"]');
+    console.log(`Gevonden password inputs: ${passwordInputs.length}`);
+    
+    passwordInputs.forEach((input, index) => {
+        console.log(`Input ${index + 1}:`, {
+            id: input.id,
+            value: input.value,
+            disabled: input.disabled,
+            readonly: input.readOnly,
+            style: input.style.cssText,
+            parentElement: input.parentElement.className
+        });
+    });
+    
+    // Test of we kunnen typen
+    if (passwordInputs.length > 0) {
+        const testInput = passwordInputs[0];
+        console.log('Test input:', testInput.id);
+        testInput.focus();
+        console.log('Input focused, probeer nu te typen...');
+    }
+}
+
+// Test functie om wachtwoordveld direct bewerkbaar te maken
+function testPasswordField(rigId, poolType) {
+    const passwordInput = document.getElementById(`pool-password-${rigId}-${poolType}`);
+    if (passwordInput) {
+        console.log('Testing password field:', passwordInput.id);
+        console.log('Current state:', {
+            disabled: passwordInput.disabled,
+            readonly: passwordInput.readOnly,
+            value: passwordInput.value,
+            style: passwordInput.style.cssText
+        });
+        
+        // Check computed styles
+        const computedStyle = window.getComputedStyle(passwordInput);
+        console.log('Computed styles:', {
+            pointerEvents: computedStyle.pointerEvents,
+            userSelect: computedStyle.userSelect,
+            position: computedStyle.position,
+            zIndex: computedStyle.zIndex,
+            display: computedStyle.display,
+            visibility: computedStyle.visibility
+        });
+        
+        // Check parent elements for blocking styles
+        let parent = passwordInput.parentElement;
+        let depth = 0;
+        while (parent && depth < 5) {
+            const parentStyle = window.getComputedStyle(parent);
+            console.log(`Parent ${depth}:`, {
+                tagName: parent.tagName,
+                className: parent.className,
+                pointerEvents: parentStyle.pointerEvents,
+                userSelect: parentStyle.userSelect,
+                position: parentStyle.position,
+                zIndex: parentStyle.zIndex
+            });
+            parent = parent.parentElement;
+            depth++;
+        }
+        
+        // Force enable
+        passwordInput.disabled = false;
+        passwordInput.readOnly = false;
+        passwordInput.style.pointerEvents = 'auto';
+        passwordInput.style.userSelect = 'auto';
+        passwordInput.style.position = 'relative';
+        passwordInput.style.zIndex = '9999';
+        
+        // Focus en test
+        passwordInput.focus();
+        passwordInput.value = 'test123';
+        console.log('Password field should now be editable. Try typing...');
+        
+        // Add event listeners to debug
+        passwordInput.addEventListener('click', (e) => {
+            console.log('Password field clicked!', e);
+        });
+        passwordInput.addEventListener('focus', (e) => {
+            console.log('Password field focused!', e);
+        });
+        passwordInput.addEventListener('input', (e) => {
+            console.log('Password field input!', e.target.value);
+        });
+    } else {
+        console.log('Password field not found!');
+    }
+}
+
+// Test functie om event listeners te controleren
+function testEventListeners(rigId, poolType) {
+    const passwordInput = document.getElementById(`pool-password-${rigId}-${poolType}`);
+    if (passwordInput) {
+        console.log('=== Event Listener Test ===');
+        
+        // Test basic input
+        passwordInput.value = '';
+        passwordInput.focus();
+        
+        // Simulate typing
+        const testEvent = new Event('input', { bubbles: true });
+        passwordInput.dispatchEvent(testEvent);
+        
+        // Try to set value directly
+        passwordInput.value = 'direct_test';
+        console.log('Direct value set:', passwordInput.value);
+        
+        // Test if we can type
+        passwordInput.addEventListener('keydown', (e) => {
+            console.log('Keydown event:', e.key, e.target.value);
+        });
+        
+        console.log('Try typing now and check console for keydown events...');
+    }
+}
+
+// Vervang prompt() met modale popup
+function showPrompt(title, message, defaultValue = '') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('prompt-modal');
+        const titleEl = document.getElementById('prompt-title');
+        const messageEl = document.getElementById('prompt-message');
+        const input = document.getElementById('prompt-input');
+        const okBtn = document.getElementById('prompt-ok');
+        const cancelBtn = document.getElementById('prompt-cancel');
+        
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        input.value = defaultValue;
+        
+        modal.style.display = 'flex';
+        input.focus();
+        
+        const handleOk = () => {
+            const value = input.value.trim();
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', handleOk);
+            cancelBtn.removeEventListener('click', handleCancel);
+            input.removeEventListener('keypress', handleKeypress);
+            resolve(value);
+        };
+        
+        const handleCancel = () => {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', handleOk);
+            cancelBtn.removeEventListener('click', handleCancel);
+            input.removeEventListener('keypress', handleKeypress);
+            resolve(null);
+        };
+        
+        const handleKeypress = (e) => {
+            if (e.key === 'Enter') {
+                handleOk();
+            } else if (e.key === 'Escape') {
+                handleCancel();
+            }
+        };
+        
+        okBtn.addEventListener('click', handleOk);
+        cancelBtn.addEventListener('click', handleCancel);
+        input.addEventListener('keypress', handleKeypress);
+    });
+}
+
+// Functie om de huidige pool configuratie te bewerken
+function editCurrentPoolConfig(rigId, poolType) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (!rig) {
+        alert('Rig niet gevonden');
+        return;
+    }
+    
+    // Haal huidige waarden op uit de velden
+    const nameInput = document.getElementById(`pool-config-name-${rigId}-${poolType}`);
+    const passwordInput = document.getElementById(`pool-password-${rigId}-${poolType}`);
+    
+    const currentName = nameInput ? nameInput.value.trim() : '';
+    const currentPassword = passwordInput ? passwordInput.value : '';
+    
+    if (!currentName) {
+        alert('Voer eerst een naam in voor de configuratie');
+        return;
+    }
+    
+    if (!currentPassword) {
+        alert('Voer eerst een wachtwoord in voor de configuratie');
+        return;
+    }
+    
+    // Zoek bestaande configuratie met dezelfde naam
+    try {
+        const configs = JSON.parse(localStorage.getItem(POOL_CONFIGS_KEY) || '[]');
+        const existingConfig = configs.find(config => 
+            config.rigId === rigId && 
+            config.poolType === poolType && 
+            config.name === currentName
+        );
+        
+        if (existingConfig) {
+            // Update bestaande configuratie
+            existingConfig.password = currentPassword;
+            existingConfig.timestamp = Date.now();
+            
+            localStorage.setItem(POOL_CONFIGS_KEY, JSON.stringify(configs));
+            alert(`Pool configuratie "${currentName}" bijgewerkt voor ${rig.name}!`);
+        } else {
+            // Maak nieuwe configuratie
+            const newConfig = {
+                id: Date.now().toString(),
+                name: currentName,
+                rigId: rigId,
+                rigName: rig.name,
+                poolType: poolType,
+                password: currentPassword,
+                timestamp: Date.now()
+            };
+            
+            configs.push(newConfig);
+            localStorage.setItem(POOL_CONFIGS_KEY, JSON.stringify(configs));
+            alert(`Nieuwe pool configuratie "${currentName}" opgeslagen voor ${rig.name}!`);
+        }
+    } catch (e) {
+        console.error('Kan pool configuratie niet bewerken:', e);
+        alert('Fout bij bewerken van pool configuratie');
+    }
+}
+
+// Functie om bestaande pool configuratie te bewerken
+async function editPoolConfig(config) {
+    const newName = await showPrompt('Pool Configuratie Bewerken', `Bewerk naam voor "${config.name}":`, config.name);
+    if (!newName) return;
+    
+    const newPassword = await showPrompt('Pool Configuratie Bewerken', `Bewerk wachtwoord voor "${newName}":`, config.password);
+    if (!newPassword) return;
+    
+    try {
+        const configs = JSON.parse(localStorage.getItem(POOL_CONFIGS_KEY) || '[]');
+        const configIndex = configs.findIndex(c => c.id === config.id);
+        
+        if (configIndex !== -1) {
+            configs[configIndex].name = newName;
+            configs[configIndex].password = newPassword;
+            configs[configIndex].timestamp = Date.now();
+            
+            localStorage.setItem(POOL_CONFIGS_KEY, JSON.stringify(configs));
+            alert(`Pool configuratie "${newName}" bijgewerkt!`);
+        } else {
+            alert('Configuratie niet gevonden');
+        }
+    } catch (e) {
+        console.error('Kan pool configuratie niet bewerken:', e);
+        alert('Fout bij bewerken van pool configuratie');
+    }
+}
+
+function toggleRigExpansion(rigId) {
+    const rigCard = document.querySelector(`[data-rig-id="${rigId}"]`);
+    if (!rigCard) return;
+    
+    const expandIcon = rigCard.querySelector('.rig-expand-icon');
+    const isExpanded = rigCard.classList.toggle('expanded');
+    
+    if (expandIcon) {
+        expandIcon.textContent = isExpanded ? '🔽' : '▶️';
+    }
+}
+
+function updateRigField(rigId, field, value) {
+    const rig = miningRigs.find(r => r.id === rigId);
+    if (rig) {
+        // Validatie per veld
+        switch(field) {
+            case 'rigType':
+                rig.rigType = value;
+                // Update API endpoint als het een bekend type is
+                const rigType = RIG_TYPES.find(rt => rt.id === value);
+                if (rigType && !rig.customApiEndpoint) {
+                    rig.customApiEndpoint = rigType.apiEndpoint;
+                }
+                break;
+            case 'algorithm':
+                rig.algorithm = value;
+                break;
+            case 'customApiEndpoint':
+                rig.customApiEndpoint = value.trim();
+                break;
+            case 'miningCoin':
+                rig.miningCoin = value;
+                break;
+            case 'poolUrl':
+                rig.poolUrl = value.trim();
+                break;
+            case 'poolPort':
+                rig.poolPort = value.trim();
+                break;
+            case 'poolUser':
+                rig.poolUser = value.trim();
+                break;
+            case 'hashrate':
+                const hashrateValue = parseFloat(value);
+                if (hashrateValue >= 0) {
+                    rig.hashrate = hashrateValue;
+                } else {
+                    alert('Hashrate moet een positief getal zijn');
+                    return;
+                }
+                break;
+            case 'powerConsumption':
+                const powerValue = parseFloat(value);
+                if (powerValue >= 0) {
+                    rig.powerConsumption = powerValue;
+                } else {
+                    alert('Stroomverbruik moet een positief getal zijn');
+                    return;
+                }
+                break;
+            case 'ipAddress':
+                // Eenvoudige IP-adres validatie
+                const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                if (value.trim() === '' || ipRegex.test(value.trim())) {
+                    rig.ipAddress = value.trim();
+                } else {
+                    alert('Voer een geldig IP-adres in (bijv. 192.168.1.100)');
+                    return;
+                }
+                break;
+            default:
+                // Voor andere velden, probeer als nummer, anders als string
+                const numValue = parseFloat(value);
+                if (!isNaN(numValue)) {
+                    rig[field] = numValue;
+                } else {
+                    rig[field] = value;
+                }
+        }
+        
+        // Update UI
+        updateRigSummary();
+        saveRigsToStorage();
+        
+        // Toon feedback
+        console.log(`${rig.name} ${field} bijgewerkt naar: ${rig[field]}`);
     }
 }

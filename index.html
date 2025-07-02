@@ -72,49 +72,12 @@
                     </div>
                     
                     <div class="settings-panel" id="pool-panel">
+                        
+                        <!-- Pool Overzicht Sectie -->
                         <div class="settings-section">
                             <div class="section-header">
-                                <h3 class="section-title">⛏️ Mining Pool Configuratie</h3>
-                            </div>
-                            <div class="section-content">
-                                <div class="setting-group">
-                                    <label for="pool-select">Pool Selectie:</label>
-                                    <select id="pool-select">
-                                        <option value="antpool">Antpool</option>
-                                        <option value="f2pool">F2Pool</option>
-                                        <option value="poolin">Poolin</option>
-                                        <option value="btccom">BTC.com</option>
-                                        <option value="slushpool">Slushpool</option>
-                                        <option value="viabtc">ViaBTC</option>
-                                        <option value="binance">Binance Pool</option>
-                                        <option value="okex">OKEx Pool</option>
-                                        <option value="custom">Custom Pool</option>
-                                    </select>
-                                </div>
-                                
-                                <div class="pool-config">
-                                    <div class="setting-group">
-                                        <label for="pool-api-key">Pool API Key:</label>
-                                        <input type="text" id="pool-api-key" placeholder="Voer pool API key in">
-                                    </div>
-                                    <div class="setting-group">
-                                        <label for="worker-name">Worker Name:</label>
-                                        <input type="text" id="worker-name" placeholder="MijnRig.001">
-                                    </div>
-                                    <div class="setting-group">
-                                        <label for="pool-url">Custom Pool URL:</label>
-                                        <input type="text" id="pool-url" placeholder="https://pool.example.com">
-                                        <small>Alleen nodig voor custom pools</small>
-                                    </div>
-                                    <div class="pool-status">
-                                        <label>Pool Status:</label>
-                                        <span class="status-indicator connected">●</span>
-                                        <span>Verbonden</span>
-                                        <button class="btn-secondary" onclick="testPool()">Test Pool</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                                <h3 class="section-title">📊 Pool Overzicht</h3>
+                        </div></div>
                     </div>
                     
                     <!-- Coins Beheer Panel -->
@@ -132,35 +95,9 @@
                     
                     <!-- Profit Calculator Panel -->
                     <div id="profit-panel" class="settings-panel">
-                        <h2>💰 Profit Calculator</h2>
-                        <div class="calculator-grid">
-                            <div class="calc-section">
-                                <h3>Dagelijkse Winst</h3>
-                                <div class="profit-display" id="daily-profit">€0.00</div>
-                            </div>
-                            <div class="calc-section">
-                                <h3>Wekelijkse Winst</h3>
-                                <div class="profit-display" id="weekly-profit">€0.00</div>
-                            </div>
-                            <div class="calc-section">
-                                <h3>Maandelijkse Winst</h3>
-                                <div class="profit-display" id="monthly-profit">€0.00</div>
-                            </div>
-                            <div class="calc-section">
-                                <h3>Jaarlijkse Winst</h3>
-                                <div class="profit-display" id="yearly-profit">€0.00</div>
-                            </div>
-                        </div>
-                        <button id="calculate-profit" class="btn-primary">🧮 Bereken Winst</button>
-                        
-                        <!-- Charts -->
-                        <div class="charts-section">
-                            <h3>📈 Grafieken</h3>
-                            <div class="chart-container">
-                                <canvas id="profit-chart"></canvas>
-                            </div>
-                            <div class="chart-container">
-                                <canvas id="roi-chart"></canvas>
+                        <div class="settings-section">
+                            <div class="section-header">
+                                <h3 class="section-title">💰 Profit Calculator</h3>
                             </div>
                         </div>
                     </div>
@@ -172,6 +109,23 @@
                             </div>
                             <div class="section-content">
                                 <!-- Globale Instellingen -->
+                                <div class="rig-summary">
+                                    <h4>Totale Capaciteit</h4>
+                                    <div class="summary-grid">
+                                        <div class="summary-item">
+                                            <span class="summary-label">Totale Hashrate:</span>
+                                            <span id="total-hashrate" class="summary-value">0 GH/s</span>
+                                        </div>
+                                        <div class="summary-item">
+                                            <span class="summary-label">Totale Stroomverbruik:</span>
+                                            <span id="total-power" class="summary-value">0 W</span>
+                                        </div>
+                                        <div class="summary-item">
+                                            <span class="summary-label">Dagelijkse Kosten:</span>
+                                            <span id="daily-cost" class="summary-value">€0.00</span>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="global-settings">
                                     <h4>🌍 Globale Instellingen</h4>
                                     <div class="setting-group">
@@ -190,24 +144,6 @@
                                     
                                     <div id="rigs-list" class="rigs-list">
                                         <!-- Rigs worden hier dynamisch toegevoegd -->
-                                    </div>
-                                    
-                                    <div class="rig-summary">
-                                        <h4>Totale Capaciteit</h4>
-                                        <div class="summary-grid">
-                                            <div class="summary-item">
-                                                <span class="summary-label">Totale Hashrate:</span>
-                                                <span id="total-hashrate" class="summary-value">0 GH/s</span>
-                                            </div>
-                                            <div class="summary-item">
-                                                <span class="summary-label">Totale Stroomverbruik:</span>
-                                                <span id="total-power" class="summary-value">0 W</span>
-                                            </div>
-                                            <div class="summary-item">
-                                                <span class="summary-label">Dagelijkse Kosten:</span>
-                                                <span id="daily-cost" class="summary-value">€0.00</span>
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -264,6 +200,19 @@
 
         <!-- Overlay -->
         <div class="overlay" id="overlay"></div>
+        
+        <!-- Simple Modal for Prompts -->
+        <div id="prompt-modal" class="prompt-modal" style="display: none;">
+            <div class="prompt-content">
+                <h3 id="prompt-title">Invoer</h3>
+                <p id="prompt-message">Voer de gevraagde informatie in:</p>
+                <input type="text" id="prompt-input" placeholder="Voer hier in...">
+                <div class="prompt-buttons">
+                    <button id="prompt-ok" class="btn-primary">OK</button>
+                    <button id="prompt-cancel" class="btn-secondary">Annuleren</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="renderer.js"></script>
